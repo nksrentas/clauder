@@ -49,7 +49,18 @@ async function updateStatusBar(): Promise<void> {
   try {
     statusBarManager.showLoading();
 
-    const apiData = await usageApiClient.fetchUsage();
+    const result = await usageApiClient.fetchUsage();
+
+    if (result.status === 'no_token') {
+      statusBarManager.showNotAuthenticated();
+      promptForAuthentication();
+      return;
+    }
+
+    if (result.status === 'error') {
+      statusBarManager.showError(result.message);
+      return;
+    }
 
     let localData = null;
     try {
@@ -61,18 +72,28 @@ async function updateStatusBar(): Promise<void> {
     }
 
     const combined: CombinedUsage = {
-      api: apiData,
+      api: result.data,
       local: localData,
     };
 
     statusBarManager.update(combined);
-
-    if (apiData) {
-      console.log('[Clauder] API data:', JSON.stringify(apiData, null, 2));
-    }
+    console.log('[Clauder] API data:', JSON.stringify(result.data, null, 2));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     statusBarManager.showError(message);
+  }
+}
+
+async function promptForAuthentication(): Promise<void> {
+  const action = await vscode.window.showInformationMessage(
+    'Claude Code credentials not found. Please authenticate to see usage data.',
+    'Authenticate'
+  );
+
+  if (action === 'Authenticate') {
+    const terminal = vscode.window.createTerminal('Claude Auth');
+    terminal.show();
+    terminal.sendText('claude');
   }
 }
 

@@ -1,12 +1,12 @@
 import { exec } from 'child_process';
 import * as https from 'https';
 
-export interface UsageLimit {
+export type UsageLimit = {
   utilization: number;
   resets_at: string | null;
-}
+};
 
-export interface OAuthUsageResponse {
+export type OAuthUsageResponse = {
   five_hour: UsageLimit | null;
   seven_day: UsageLimit | null;
   seven_day_sonnet: UsageLimit | null;
@@ -17,32 +17,37 @@ export interface OAuthUsageResponse {
     used_credits: number | null;
     utilization: number | null;
   } | null;
-}
+};
 
-export interface UsageData {
+export type UsageData = {
   session: { utilization: number; resetsAt: Date | null };
   weeklyAll: { utilization: number; resetsAt: Date | null };
   weeklySonnet: { utilization: number; resetsAt: Date | null } | null;
   weeklyOpus: { utilization: number; resetsAt: Date | null } | null;
-}
+};
+
+export type FetchResult =
+  | { status: 'success'; data: UsageData }
+  | { status: 'no_token' }
+  | { status: 'error'; message: string };
 
 export class UsageApiClient {
-  private static readonly API_URL = 'https://api.anthropic.com/api/oauth/usage';
   private static readonly KEYCHAIN_SERVICE = 'Claude Code-credentials';
 
-  async fetchUsage(): Promise<UsageData | null> {
+  async fetchUsage(): Promise<FetchResult> {
     try {
       const token = await this.getOAuthToken();
       if (!token) {
         console.log('[Clauder] No OAuth token found');
-        return null;
+        return { status: 'no_token' };
       }
 
       const response = await this.callApi(token);
-      return this.parseResponse(response);
+      return { status: 'success', data: this.parseResponse(response) };
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
       console.error('[Clauder] API error:', error);
-      return null;
+      return { status: 'error', message };
     }
   }
 

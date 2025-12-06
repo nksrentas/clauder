@@ -58,6 +58,12 @@ export class StatusBarManager {
     this.statusBarItem.color = new vscode.ThemeColor('errorForeground');
   }
 
+  showNotAuthenticated(): void {
+    this.statusBarItem.text = '$(sparkle) Claude: Not authenticated';
+    this.statusBarItem.tooltip = 'Click to authenticate with Claude Code';
+    this.statusBarItem.color = undefined;
+  }
+
   private buildTooltip(usage: CombinedUsage): vscode.MarkdownString {
     const api = usage.api!;
     const local = usage.local;
