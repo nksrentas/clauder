@@ -23,10 +23,6 @@
       {
         "command": "clauder.refresh",
         "title": "Clauder: Refresh"
-      },
-      {
-        "command": "clauder.selectPlan",
-        "title": "Clauder: Select Plan"
       }
     ],
     "configuration": {
