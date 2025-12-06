@@ -1,7 +1,7 @@
 {
   "name": "clauder",
   "displayName": "Clauder",
-  "description": "Claude Code usage tracker for VS Code",
+  "description": "Track your Claude Code usage directly in VS Code. Shows real-time session and weekly utilization with color-coded status bar indicator.",
   "version": "0.1.0",
   "publisher": "nrentas",
   "author": {
@@ -13,7 +13,16 @@
     "vscode": "^1.85.0"
   },
   "categories": [
+    "Visualization",
     "Other"
+  ],
+  "keywords": [
+    "claude",
+    "anthropic",
+    "usage",
+    "tracker",
+    "ai",
+    "status bar"
   ],
   "activationEvents": [
     "onStartupFinished"
