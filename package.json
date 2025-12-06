@@ -8,6 +8,7 @@
     "email": "nksrentas@gmail.com",
     "name": "Nick Rentas"
   },
+  "icon": "icon.png",
   "engines": {
     "vscode": "^1.85.0"
   },
