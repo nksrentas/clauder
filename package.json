@@ -9,6 +9,15 @@
     "name": "Nick Rentas"
   },
   "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nksrentas/clauder"
+  },
+  "homepage": "https://github.com/nksrentas/clauder#readme",
+  "bugs": {
+    "url": "https://github.com/nksrentas/clauder/issues"
+  },
+  "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"
   },
