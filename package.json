@@ -1,0 +1,82 @@
+{
+  "name": "clauder",
+  "displayName": "Clauder",
+  "description": "Claude Code usage tracker for VS Code",
+  "version": "0.1.0",
+  "publisher": "nrentas",
+  "author": {
+    "email": "nksrentas@gmail.com",
+    "name": "Nick Rentas"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "clauder.refresh",
+        "title": "Clauder: Refresh"
+      },
+      {
+        "command": "clauder.selectPlan",
+        "title": "Clauder: Select Plan"
+      }
+    ],
+    "configuration": {
+      "title": "Clauder",
+      "properties": {
+        "clauder.plan": {
+          "type": "string",
+          "default": "pro",
+          "enum": [
+            "pro",
+            "max5",
+            "max20"
+          ],
+          "enumDescriptions": [
+            "Pro Plan ($20/month)",
+            "Max 5x Plan ($100/month)",
+            "Max 20x Plan ($200/month)"
+          ],
+          "description": "Your Claude subscription plan"
+        },
+        "clauder.refreshInterval": {
+          "type": "number",
+          "default": 30,
+          "minimum": 5,
+          "maximum": 300,
+          "description": "Refresh interval in seconds"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "package": "vsce package",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "devDependencies": {
+    "@trivago/prettier-plugin-sort-imports": "^6.0.0",
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.19.0",
+    "prettier": "^3.7.4",
+    "typescript": "^5.3.0",
+    "vitest": "^4.0.15"
+  },
+  "dependencies": {
+    "chokidar": "^3.5.3"
+  }
+}

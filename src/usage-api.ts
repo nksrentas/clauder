@@ -1,0 +1,133 @@
+import { exec } from 'child_process';
+import * as https from 'https';
+
+export interface UsageLimit {
+  utilization: number;
+  resets_at: string | null;
+}
+
+export interface OAuthUsageResponse {
+  five_hour: UsageLimit | null;
+  seven_day: UsageLimit | null;
+  seven_day_sonnet: UsageLimit | null;
+  seven_day_opus: UsageLimit | null;
+  extra_usage: {
+    is_enabled: boolean;
+    monthly_limit: number | null;
+    used_credits: number | null;
+    utilization: number | null;
+  } | null;
+}
+
+export interface UsageData {
+  session: { utilization: number; resetsAt: Date | null };
+  weeklyAll: { utilization: number; resetsAt: Date | null };
+  weeklySonnet: { utilization: number; resetsAt: Date | null } | null;
+  weeklyOpus: { utilization: number; resetsAt: Date | null } | null;
+}
+
+export class UsageApiClient {
+  private static readonly API_URL = 'https://api.anthropic.com/api/oauth/usage';
+  private static readonly KEYCHAIN_SERVICE = 'Claude Code-credentials';
+
+  async fetchUsage(): Promise<UsageData | null> {
+    try {
+      const token = await this.getOAuthToken();
+      if (!token) {
+        console.log('[Clauder] No OAuth token found');
+        return null;
+      }
+
+      const response = await this.callApi(token);
+      return this.parseResponse(response);
+    } catch (error) {
+      console.error('[Clauder] API error:', error);
+      return null;
+    }
+  }
+
+  private getOAuthToken(): Promise<string | null> {
+    return new Promise((resolve) => {
+      exec(
+        `security find-generic-password -s "${UsageApiClient.KEYCHAIN_SERVICE}" -w`,
+        (error, stdout) => {
+          if (error) {
+            console.log('[Clauder] Keychain access failed:', error.message);
+            resolve(null);
+            return;
+          }
+
+          try {
+            const creds = JSON.parse(stdout.trim());
+            const token = creds?.claudeAiOauth?.accessToken;
+            resolve(token || null);
+          } catch {
+            console.log('[Clauder] Failed to parse credentials');
+            resolve(null);
+          }
+        }
+      );
+    });
+  }
+
+  private callApi(token: string): Promise<OAuthUsageResponse> {
+    return new Promise((resolve, reject) => {
+      const req = https.request(
+        {
+          hostname: 'api.anthropic.com',
+          path: '/api/oauth/usage',
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'anthropic-beta': 'oauth-2025-04-20',
+            'User-Agent': 'claude-code/2.0.60',
+          },
+        },
+        (res) => {
+          let data = '';
+          res.on('data', (chunk) => (data += chunk));
+          res.on('end', () => {
+            try {
+              const parsed = JSON.parse(data) as OAuthUsageResponse;
+              resolve(parsed);
+            } catch {
+              reject(new Error('Failed to parse API response'));
+            }
+          });
+        }
+      );
+
+      req.on('error', reject);
+      req.end();
+    });
+  }
+
+  private parseResponse(response: OAuthUsageResponse): UsageData {
+    return {
+      session: {
+        utilization: response.five_hour?.utilization ?? 0,
+        resetsAt: response.five_hour?.resets_at ? new Date(response.five_hour.resets_at) : null,
+      },
+      weeklyAll: {
+        utilization: response.seven_day?.utilization ?? 0,
+        resetsAt: response.seven_day?.resets_at ? new Date(response.seven_day.resets_at) : null,
+      },
+      weeklySonnet: response.seven_day_sonnet
+        ? {
+            utilization: response.seven_day_sonnet.utilization,
+            resetsAt: response.seven_day_sonnet.resets_at
+              ? new Date(response.seven_day_sonnet.resets_at)
+              : null,
+          }
+        : null,
+      weeklyOpus: response.seven_day_opus
+        ? {
+            utilization: response.seven_day_opus.utilization,
+            resetsAt: response.seven_day_opus.resets_at
+              ? new Date(response.seven_day_opus.resets_at)
+              : null,
+          }
+        : null,
+    };
+  }
+}
