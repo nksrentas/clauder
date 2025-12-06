@@ -10,20 +10,12 @@ export type OAuthUsageResponse = {
   five_hour: UsageLimit | null;
   seven_day: UsageLimit | null;
   seven_day_sonnet: UsageLimit | null;
-  seven_day_opus: UsageLimit | null;
-  extra_usage: {
-    is_enabled: boolean;
-    monthly_limit: number | null;
-    used_credits: number | null;
-    utilization: number | null;
-  } | null;
 };
 
 export type UsageData = {
   session: { utilization: number; resetsAt: Date | null };
   weeklyAll: { utilization: number; resetsAt: Date | null };
   weeklySonnet: { utilization: number; resetsAt: Date | null } | null;
-  weeklyOpus: { utilization: number; resetsAt: Date | null } | null;
 };
 
 export type FetchResult =
@@ -122,14 +114,6 @@ export class UsageApiClient {
             utilization: response.seven_day_sonnet.utilization,
             resetsAt: response.seven_day_sonnet.resets_at
               ? new Date(response.seven_day_sonnet.resets_at)
-              : null,
-          }
-        : null,
-      weeklyOpus: response.seven_day_opus
-        ? {
-            utilization: response.seven_day_opus.utilization,
-            resetsAt: response.seven_day_opus.resets_at
-              ? new Date(response.seven_day_opus.resets_at)
               : null,
           }
         : null,

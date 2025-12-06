@@ -1,7 +1,5 @@
 import * as vscode from 'vscode';
 
-import * as chokidar from 'chokidar';
-
 import type { CombinedUsage } from '~/status-bar';
 import { StatusBarManager } from '~/status-bar';
 import type { PlanType } from '~/types';
@@ -11,9 +9,7 @@ import { UsageTracker } from '~/usage-tracker';
 let statusBarManager: StatusBarManager;
 let usageApiClient: UsageApiClient;
 let usageTracker: UsageTracker;
-let fileWatcher: chokidar.FSWatcher | undefined;
 let refreshInterval: NodeJS.Timeout | undefined;
-let debounceTimeout: NodeJS.Timeout | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
   statusBarManager = new StatusBarManager();
@@ -27,7 +23,6 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(refreshCommand, {
     dispose: () => {
       statusBarManager.dispose();
-      stopFileWatcher();
       stopRefreshInterval();
     },
   });
@@ -40,7 +35,6 @@ export function activate(context: vscode.ExtensionContext) {
   });
   context.subscriptions.push(configListener);
 
-  setupFileWatcher();
   setupRefreshInterval();
   updateStatusBar();
 }
@@ -97,43 +91,6 @@ async function promptForAuthentication(): Promise<void> {
   }
 }
 
-function setupFileWatcher(): void {
-  stopFileWatcher();
-
-  const claudePath = usageTracker.getClaudeDataPath();
-
-  try {
-    fileWatcher = chokidar.watch(`${claudePath}/**/*.jsonl`, {
-      ignoreInitial: true,
-      persistent: true,
-      usePolling: false,
-      awaitWriteFinish: {
-        stabilityThreshold: 500,
-        pollInterval: 100,
-      },
-    });
-
-    fileWatcher.on('change', () => debouncedUpdate());
-    fileWatcher.on('add', () => debouncedUpdate());
-  } catch {
-    // File watcher setup failed - rely on interval refresh
-  }
-}
-
-function debouncedUpdate(): void {
-  if (debounceTimeout) {
-    clearTimeout(debounceTimeout);
-  }
-  debounceTimeout = setTimeout(() => updateStatusBar(), 500);
-}
-
-function stopFileWatcher(): void {
-  if (fileWatcher) {
-    fileWatcher.close();
-    fileWatcher = undefined;
-  }
-}
-
 function setupRefreshInterval(): void {
   stopRefreshInterval();
 
@@ -148,13 +105,8 @@ function stopRefreshInterval(): void {
     clearInterval(refreshInterval);
     refreshInterval = undefined;
   }
-  if (debounceTimeout) {
-    clearTimeout(debounceTimeout);
-    debounceTimeout = undefined;
-  }
 }
 
 export function deactivate() {
-  stopFileWatcher();
   stopRefreshInterval();
 }

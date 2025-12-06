@@ -8,7 +8,6 @@ describe('FetchResult type', () => {
       session: { utilization: 50, resetsAt: new Date() },
       weeklyAll: { utilization: 30, resetsAt: new Date() },
       weeklySonnet: null,
-      weeklyOpus: null,
     };
 
     const result: FetchResult = { status: 'success', data };
@@ -42,8 +41,6 @@ describe('OAuthUsageResponse parsing', () => {
       five_hour: { utilization: 61, resets_at: '2025-12-06T21:00:00+00:00' },
       seven_day: { utilization: 81, resets_at: '2025-12-08T20:00:00+00:00' },
       seven_day_sonnet: { utilization: 6, resets_at: '2025-12-08T22:00:00+00:00' },
-      seven_day_opus: null,
-      extra_usage: null,
     };
 
     expect(response.five_hour?.utilization).toBe(61);
@@ -56,8 +53,6 @@ describe('OAuthUsageResponse parsing', () => {
       five_hour: null,
       seven_day: null,
       seven_day_sonnet: null,
-      seven_day_opus: null,
-      extra_usage: null,
     };
 
     expect(response.five_hour).toBeNull();
@@ -72,7 +67,6 @@ describe('UsageData structure', () => {
       session: { utilization: 75, resetsAt: resetDate },
       weeklyAll: { utilization: 50, resetsAt: null },
       weeklySonnet: null,
-      weeklyOpus: null,
     };
 
     expect(data.session.utilization).toBe(75);
@@ -85,10 +79,8 @@ describe('UsageData structure', () => {
       session: { utilization: 0, resetsAt: null },
       weeklyAll: { utilization: 0, resetsAt: null },
       weeklySonnet: { utilization: 10, resetsAt: new Date() },
-      weeklyOpus: null,
     };
 
     expect(data.weeklySonnet).not.toBeNull();
-    expect(data.weeklyOpus).toBeNull();
   });
 });

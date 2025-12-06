@@ -197,8 +197,4 @@ export class UsageTracker {
       rl.on('error', () => resolve(entries));
     });
   }
-
-  getClaudeDataPath(): string {
-    return this.claudeDataPath;
-  }
 }
