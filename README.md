@@ -1,5 +1,7 @@
 # Clauder
 
+![Clauder](images/clauder-img.png)
+
 VS Code extension that displays your Claude Code usage in the status bar.
 
 ## Features
@@ -19,10 +21,7 @@ VS Code extension that displays your Claude Code usage in the status bar.
 
 ## Installation
 
-1. Clone this repository
-2. Run `npm install`
-3. Run `npm run build`
-4. Press F5 in VS Code to launch Extension Development Host
+Install from the VS Code Marketplace or search for "Clauder" in the Extensions view.
 
 ## Usage
 
@@ -41,17 +40,6 @@ $(sparkle) Claude: 61% | 2h 15m
 | ------------------------- | ------- | ----------------------------------------- |
 | `clauder.plan`            | `pro`   | Your subscription plan (pro, max5, max20) |
 | `clauder.refreshInterval` | `30`    | Auto-refresh interval in seconds          |
-
-## Development
-
-```bash
-npm install          # Install dependencies
-npm run build        # Build extension
-npm run watch        # Build with watch mode
-npm run test         # Run tests in watch mode
-npm run test:run     # Run tests once
-npm run format       # Format code
-```
 
 ## License
 
