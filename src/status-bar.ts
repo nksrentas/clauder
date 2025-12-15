@@ -69,7 +69,18 @@ export class StatusBarManager {
   }
 
   showLoading(): void {
-    this.statusBarItem.text = '$(sync~spin) Claude: Loading...';
+    const existingText = this.statusBarItem.text?.trim();
+    if (existingText) {
+      if (existingText.startsWith('$(sync~spin)')) {
+        this.statusBarItem.text = existingText;
+      } else if (existingText.startsWith('$(sparkle)')) {
+        this.statusBarItem.text = existingText.replace('$(sparkle)', '$(sync~spin)');
+      } else {
+        this.statusBarItem.text = `$(sync~spin) ${existingText}`;
+      }
+    } else {
+      this.statusBarItem.text = '$(sync~spin) Claude: Loading...';
+    }
     this.statusBarItem.tooltip = 'Fetching usage data...';
   }
 
@@ -172,24 +183,16 @@ export class StatusBarManager {
     const md = new vscode.MarkdownString();
     md.appendMarkdown('**Claude Code Usage**\n\n');
 
-    md.appendMarkdown('---\n\n');
-
-    md.appendMarkdown('**Current Session**\n\n');
-    md.appendMarkdown(`${Math.round(api.session.utilization)}% used\n\n`);
-    if (api.session.resetsAt) {
-      md.appendMarkdown(`Resets in: ${formatTimeRemaining(api.session.resetsAt)}\n\n`);
-    }
-
-    md.appendMarkdown('---\n\n');
-
-    md.appendMarkdown('**Weekly (all models)**\n\n');
-    md.appendMarkdown(`${Math.round(api.weeklyAll.utilization)}% used\n\n`);
-    if (api.weeklyAll.resetsAt) {
-      md.appendMarkdown(`Resets: ${formatResetDay(api.weeklyAll.resetsAt)}\n\n`);
-    }
+    let hasContent = false;
+    const appendSeparator = () => {
+      if (hasContent) {
+        md.appendMarkdown('---\n\n');
+      }
+      hasContent = true;
+    };
 
     if (api.weeklySonnet) {
-      md.appendMarkdown('---\n\n');
+      appendSeparator();
       md.appendMarkdown('**Weekly (Sonnet only)**\n\n');
       md.appendMarkdown(`${Math.round(api.weeklySonnet.utilization)}% used\n\n`);
       if (api.weeklySonnet.resetsAt) {
@@ -198,7 +201,7 @@ export class StatusBarManager {
     }
 
     if (local && local.totalCost > 0) {
-      md.appendMarkdown('---\n\n');
+      appendSeparator();
       md.appendMarkdown('**Model Breakdown (Week, CLI)**\n\n');
       const models: ModelFamily[] = ['opus', 'sonnet', 'haiku'];
       for (const model of models) {
@@ -211,6 +214,11 @@ export class StatusBarManager {
         }
       }
       md.appendMarkdown(`**Est. Cost:** $${local.totalCost.toFixed(2)}\n\n`);
+    }
+
+    if (!hasContent) {
+      appendSeparator();
+      md.appendMarkdown('_No detailed usage available_\n\n');
     }
 
     md.appendMarkdown('---\n\n');
