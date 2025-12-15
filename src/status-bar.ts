@@ -7,6 +7,8 @@ import {
   formatTokens,
   getUsageColor,
 } from '~/formatters';
+import type { LimitReset } from '~/limit';
+import { shouldHighlightWeekly } from '~/limit';
 import type { ModelFamily, UsageSummary } from '~/types';
 import type { UsageData } from '~/usage-api';
 
@@ -17,6 +19,10 @@ export type CombinedUsage = {
 
 export class StatusBarManager {
   private statusBarItem: vscode.StatusBarItem;
+  private alternateTimer: NodeJS.Timeout | undefined;
+  private showWeeklyFocus = false;
+  private cachedUsage: CombinedUsage | null = null;
+  private rotationIntervalMs = 30000;
 
   constructor() {
     this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -24,7 +30,73 @@ export class StatusBarManager {
     this.statusBarItem.show();
   }
 
+  setWeeklyRotationInterval(intervalMs: number): void {
+    const clamped = Math.max(5000, intervalMs);
+    if (this.rotationIntervalMs === clamped) {
+      return;
+    }
+
+    this.rotationIntervalMs = clamped;
+    if (this.alternateTimer && this.cachedUsage) {
+      this.toggleWeeklyRotation(false);
+      const highlight = shouldHighlightWeekly(this.cachedUsage.api);
+      this.toggleWeeklyRotation(highlight);
+    }
+  }
+
   update(usage: CombinedUsage): void {
+    this.cachedUsage = usage;
+    const weeklyHighlight = shouldHighlightWeekly(usage.api);
+    this.toggleWeeklyRotation(weeklyHighlight);
+    this.render(usage, weeklyHighlight && this.showWeeklyFocus);
+  }
+
+  showLoading(): void {
+    this.statusBarItem.text = '$(sync~spin) Claude: Loading...';
+    this.statusBarItem.tooltip = 'Fetching usage data...';
+  }
+
+  showError(message: string): void {
+    this.statusBarItem.text = '$(warning) Claude: Error';
+    this.statusBarItem.tooltip = message;
+    this.statusBarItem.color = new vscode.ThemeColor('errorForeground');
+  }
+
+  showNotAuthenticated(): void {
+    this.statusBarItem.text = '$(sparkle) Claude: Not authenticated';
+    this.statusBarItem.tooltip = 'Click to authenticate with Claude Code';
+    this.statusBarItem.color = undefined;
+  }
+
+  showLimitReached(limit: LimitReset): void {
+    this.toggleWeeklyRotation(false);
+
+    const timeRemaining = formatTimeRemaining(limit.resetAt);
+    const label =
+      limit.kind === 'session'
+        ? '5h limit reached'
+        : limit.kind === 'weeklyAll'
+          ? 'Weekly limit reached'
+          : 'Weekly Sonnet limit reached';
+
+    this.statusBarItem.text = `$(error) Claude: ${label} | ${timeRemaining}`;
+    this.statusBarItem.tooltip = 'Limit reached. Polling paused until the window resets.';
+    this.statusBarItem.color = new vscode.ThemeColor('errorForeground');
+  }
+
+  private render(usage: CombinedUsage, showWeekly: boolean): void {
+    if (showWeekly && usage.api) {
+      const percent = Math.round(usage.api.weeklyAll.utilization);
+      const time = usage.api.weeklyAll.resetsAt
+        ? formatResetDay(usage.api.weeklyAll.resetsAt)
+        : 'N/A';
+
+      this.statusBarItem.text = `$(sparkle) Claude: Weekly ${percent}% | ${time}`;
+      this.statusBarItem.color = getUsageColor(percent);
+      this.statusBarItem.tooltip = this.buildTooltip(usage);
+      return;
+    }
+
     if (usage.api) {
       const percent = Math.round(usage.api.session.utilization);
       const timeRemaining = usage.api.session.resetsAt
@@ -47,29 +119,26 @@ export class StatusBarManager {
     }
   }
 
-  showLoading(): void {
-    this.statusBarItem.text = '$(sync~spin) Claude: Loading...';
-    this.statusBarItem.tooltip = 'Fetching usage data...';
-  }
+  private toggleWeeklyRotation(enable: boolean): void {
+    if (enable) {
+      if (this.alternateTimer) {
+        return;
+      }
+      this.showWeeklyFocus = true;
+      this.alternateTimer = setInterval(() => {
+        this.showWeeklyFocus = !this.showWeeklyFocus;
+        if (this.cachedUsage) {
+          this.render(this.cachedUsage, this.showWeeklyFocus);
+        }
+      }, this.rotationIntervalMs);
+      return;
+    }
 
-  showError(message: string): void {
-    this.statusBarItem.text = '$(warning) Claude: Error';
-    this.statusBarItem.tooltip = message;
-    this.statusBarItem.color = new vscode.ThemeColor('errorForeground');
-  }
-
-  showNotAuthenticated(): void {
-    this.statusBarItem.text = '$(sparkle) Claude: Not authenticated';
-    this.statusBarItem.tooltip = 'Click to authenticate with Claude Code';
-    this.statusBarItem.color = undefined;
-  }
-
-  showLimitReached(resetsAt: Date): void {
-    const timeRemaining = formatTimeRemaining(resetsAt);
-    this.statusBarItem.text = `$(error) Claude: Limit reached | ${timeRemaining}`;
-    this.statusBarItem.tooltip =
-      'Daily/session limit reached. Polling paused until the window resets.';
-    this.statusBarItem.color = new vscode.ThemeColor('errorForeground');
+    if (this.alternateTimer) {
+      clearInterval(this.alternateTimer);
+      this.alternateTimer = undefined;
+    }
+    this.showWeeklyFocus = false;
   }
 
   private buildTooltip(usage: CombinedUsage): vscode.MarkdownString {
@@ -154,6 +223,7 @@ export class StatusBarManager {
   }
 
   dispose(): void {
+    this.toggleWeeklyRotation(false);
     this.statusBarItem.dispose();
   }
 }

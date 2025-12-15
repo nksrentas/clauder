@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { computeResumeDelay, getLimitReset, shouldRemainPaused } from '~/limit';
+import {
+  computeResumeDelay,
+  getLimitReset,
+  shouldHighlightWeekly,
+  shouldRemainPaused,
+} from '~/limit';
 import { StatusBarManager } from '~/status-bar';
 
 vi.mock('vscode', () => {
@@ -56,7 +61,7 @@ describe('limit helpers', () => {
       weeklySonnet: null,
     };
 
-    expect(getLimitReset(usage)).toEqual(resetAt);
+    expect(getLimitReset(usage)).toEqual({ kind: 'session', resetAt });
   });
 
   it('returns null when below limit or missing reset time', () => {
@@ -74,8 +79,8 @@ describe('limit helpers', () => {
     const future = new Date(Date.now() + 60_000);
     const past = new Date(Date.now() - 1_000);
 
-    expect(shouldRemainPaused(future, new Date())).toBe(true);
-    expect(shouldRemainPaused(past, new Date())).toBe(false);
+    expect(shouldRemainPaused({ kind: 'session', resetAt: future }, new Date())).toBe(true);
+    expect(shouldRemainPaused({ kind: 'session', resetAt: past }, new Date())).toBe(false);
     expect(shouldRemainPaused(null, new Date())).toBe(false);
   });
 
@@ -84,8 +89,20 @@ describe('limit helpers', () => {
     const future = new Date(nowMs + 5_000);
     const past = new Date(nowMs - 1_000);
 
-    expect(computeResumeDelay(future, nowMs)).toBe(5_000);
-    expect(computeResumeDelay(past, nowMs)).toBe(0);
+    expect(computeResumeDelay({ kind: 'session', resetAt: future }, nowMs)).toBe(5_000);
+    expect(computeResumeDelay({ kind: 'session', resetAt: past }, nowMs)).toBe(0);
+  });
+
+  it('flags weekly highlight when utilization crosses threshold', () => {
+    const resetAt = new Date();
+    const usage = {
+      session: { utilization: 10, resetsAt: null },
+      weeklyAll: { utilization: 91, resetsAt: resetAt },
+      weeklySonnet: null,
+    };
+
+    expect(shouldHighlightWeekly(usage)).toBe(true);
+    expect(shouldHighlightWeekly(null)).toBe(false);
   });
 });
 
@@ -94,12 +111,37 @@ describe('StatusBarManager limit display', () => {
     const manager = new StatusBarManager();
     const resetAt = new Date(Date.now() + 60 * 60 * 1000);
 
-    manager.showLimitReached(resetAt);
+    manager.showLimitReached({ kind: 'session', resetAt });
 
     const bar = (manager as any).statusBarItem;
-    expect(bar.text).toContain('Limit reached');
+    expect(bar.text.toLowerCase()).toContain('limit reached');
     expect(bar.text).toContain('1h');
     expect(bar.tooltip).toContain('Polling paused');
     expect(bar.color).toBeInstanceOf((await import('vscode')).ThemeColor);
+    manager.dispose();
+  });
+});
+
+describe('StatusBarManager weekly highlight rotation', () => {
+  it('alternates between session and weekly views near weekly limit', async () => {
+    vi.useFakeTimers();
+    const manager = new StatusBarManager();
+    manager.setWeeklyRotationInterval(8000);
+    const resetAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const usage = {
+      session: { utilization: 40, resetsAt: new Date(Date.now() + 5 * 60 * 60 * 1000) },
+      weeklyAll: { utilization: 95, resetsAt: resetAt },
+      weeklySonnet: null,
+    };
+
+    manager.update({ api: usage, local: null });
+    const bar = (manager as any).statusBarItem;
+    expect(bar.text).toContain('Weekly');
+
+    await vi.advanceTimersByTimeAsync(8100);
+    expect(bar.text).not.toContain('Weekly');
+
+    manager.dispose();
+    vi.useRealTimers();
   });
 });

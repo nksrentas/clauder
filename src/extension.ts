@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import type { CombinedUsage } from '~/status-bar';
 import { StatusBarManager } from '~/status-bar';
 import { computeResumeDelay, getLimitReset, shouldRemainPaused } from '~/limit';
+import type { LimitReset } from '~/limit';
 import type { PlanType } from '~/types';
 import { UsageApiClient } from '~/usage-api';
 import { UsageTracker } from '~/usage-tracker';
@@ -11,7 +12,7 @@ let statusBarManager: StatusBarManager;
 let usageApiClient: UsageApiClient;
 let usageTracker: UsageTracker;
 let refreshInterval: NodeJS.Timeout | undefined;
-let limitResetAt: Date | null = null;
+let limitReset: LimitReset | null = null;
 let limitResumeTimeout: NodeJS.Timeout | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
@@ -43,8 +44,13 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 async function updateStatusBar(): Promise<void> {
-  if (shouldRemainPaused(limitResetAt)) {
-    statusBarManager.showLimitReached(limitResetAt!);
+  if (limitReset && !shouldRemainPaused(limitReset)) {
+    clearLimitPause();
+    setupRefreshInterval();
+  }
+
+  if (shouldRemainPaused(limitReset)) {
+    statusBarManager.showLimitReached(limitReset!);
     return;
   }
 
@@ -68,6 +74,8 @@ async function updateStatusBar(): Promise<void> {
     try {
       const config = vscode.workspace.getConfiguration('clauder');
       const plan = config.get<PlanType>('plan', 'max5');
+      const rotationInterval = config.get<number>('weeklyHighlightInterval', 30) * 1000;
+      statusBarManager.setWeeklyRotationInterval(rotationInterval);
       localData = await usageTracker.calculateUsage(plan);
     } catch {
       console.log('[Clauder] Local data fetch failed, continuing with API only');
@@ -80,7 +88,7 @@ async function updateStatusBar(): Promise<void> {
 
     const resetTime = getLimitReset(result.data);
     if (resetTime) {
-      limitResetAt = resetTime;
+      limitReset = resetTime;
       statusBarManager.showLimitReached(resetTime);
       stopRefreshInterval();
       scheduleLimitResume(resetTime);
@@ -111,7 +119,7 @@ async function promptForAuthentication(): Promise<void> {
 function setupRefreshInterval(): void {
   stopRefreshInterval();
 
-  if (shouldRemainPaused(limitResetAt)) {
+  if (shouldRemainPaused(limitReset)) {
     return;
   }
 
@@ -129,14 +137,15 @@ function stopRefreshInterval(): void {
 }
 
 export function deactivate() {
+  clearLimitPause();
   stopRefreshInterval();
   clearLimitResumeTimeout();
 }
 
-function scheduleLimitResume(resetAt: Date): void {
+function scheduleLimitResume(limit: LimitReset): void {
   clearLimitResumeTimeout();
 
-  const delay = computeResumeDelay(resetAt);
+  const delay = computeResumeDelay(limit);
   if (delay <= 0) {
     clearLimitPause();
     setupRefreshInterval();
@@ -159,6 +168,6 @@ function clearLimitResumeTimeout(): void {
 }
 
 function clearLimitPause(): void {
-  limitResetAt = null;
+  limitReset = null;
   clearLimitResumeTimeout();
 }

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { activate, deactivate } from '~/extension';
 
@@ -73,6 +73,7 @@ vi.mock('vscode', () => {
       getConfiguration: vi.fn(() => ({
         get: vi.fn((key: string, fallback: any) => {
           if (key === 'refreshInterval') return 300;
+          if (key === 'weeklyHighlightInterval') return 0.3;
           return fallback;
         }),
       })),
@@ -83,6 +84,11 @@ vi.mock('vscode', () => {
 });
 
 describe('extension limit pause/resume integration', () => {
+  afterEach(() => {
+    deactivate();
+    vi.useRealTimers();
+  });
+
   beforeEach(async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2024-01-01T00:00:00Z'));
@@ -117,17 +123,48 @@ describe('extension limit pause/resume integration', () => {
     expect(fetchUsage).toHaveBeenCalledTimes(1);
     const vscode = await import('vscode');
     const bar = (vscode as any).__items[0];
-    expect(bar.text).toContain('Limit reached');
+    expect(bar.text.toLowerCase()).toContain('limit reached');
 
     await vi.advanceTimersByTimeAsync(59_000);
     expect(fetchUsage).toHaveBeenCalledTimes(1);
-    expect(bar.text).toContain('Limit reached');
+    expect(bar.text.toLowerCase()).toContain('limit reached');
 
     await vi.advanceTimersByTimeAsync(2_500);
     expect(fetchUsage).toHaveBeenCalledTimes(2);
     expect(bar.text).toContain('50%');
 
-    deactivate();
+    vi.useRealTimers();
+  });
+
+  it('pauses on weekly limit and resumes after reset', async () => {
+    const resetAt = new Date(Date.now() + 45_000);
+    const limitUsage = {
+      session: { utilization: 20, resetsAt: new Date(Date.now() + 5_000) },
+      weeklyAll: { utilization: 100, resetsAt: resetAt },
+      weeklySonnet: null,
+    };
+    const normalUsage = {
+      session: { utilization: 30, resetsAt: null },
+      weeklyAll: { utilization: 70, resetsAt: null },
+      weeklySonnet: null,
+    };
+
+    fetchUsage
+      .mockResolvedValueOnce({ status: 'success', data: limitUsage })
+      .mockResolvedValueOnce({ status: 'success', data: normalUsage });
+
+    const context = { subscriptions: [] } as any;
+    await activate(context);
+
+    const vscode = await import('vscode');
+    const bar = (vscode as any).__items[0];
+    expect(bar.text.toLowerCase()).toContain('weekly limit reached');
+    expect(fetchUsage).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(46_000);
+    expect(fetchUsage).toHaveBeenCalledTimes(2);
+    expect(bar.text).toContain('30%');
+
     vi.useRealTimers();
   });
 
@@ -151,9 +188,8 @@ describe('extension limit pause/resume integration', () => {
 
     expect(fetchUsage).toHaveBeenCalledTimes(1);
     const bar = (vscode as any).__items[0];
-    expect(bar.text).toContain('Limit reached');
+    expect(bar.text.toLowerCase()).toContain('limit reached');
 
-    deactivate();
     vi.useRealTimers();
   });
 });
