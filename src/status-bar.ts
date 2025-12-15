@@ -64,6 +64,14 @@ export class StatusBarManager {
     this.statusBarItem.color = undefined;
   }
 
+  showLimitReached(resetsAt: Date): void {
+    const timeRemaining = formatTimeRemaining(resetsAt);
+    this.statusBarItem.text = `$(error) Claude: Limit reached | ${timeRemaining}`;
+    this.statusBarItem.tooltip =
+      'Daily/session limit reached. Polling paused until the window resets.';
+    this.statusBarItem.color = new vscode.ThemeColor('errorForeground');
+  }
+
   private buildTooltip(usage: CombinedUsage): vscode.MarkdownString {
     const api = usage.api!;
     const local = usage.local;

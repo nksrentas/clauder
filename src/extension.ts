@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 
 import type { CombinedUsage } from '~/status-bar';
 import { StatusBarManager } from '~/status-bar';
+import { computeResumeDelay, getLimitReset, shouldRemainPaused } from '~/limit';
 import type { PlanType } from '~/types';
 import { UsageApiClient } from '~/usage-api';
 import { UsageTracker } from '~/usage-tracker';
@@ -10,6 +11,8 @@ let statusBarManager: StatusBarManager;
 let usageApiClient: UsageApiClient;
 let usageTracker: UsageTracker;
 let refreshInterval: NodeJS.Timeout | undefined;
+let limitResetAt: Date | null = null;
+let limitResumeTimeout: NodeJS.Timeout | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
   statusBarManager = new StatusBarManager();
@@ -40,6 +43,11 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 async function updateStatusBar(): Promise<void> {
+  if (shouldRemainPaused(limitResetAt)) {
+    statusBarManager.showLimitReached(limitResetAt!);
+    return;
+  }
+
   try {
     statusBarManager.showLoading();
 
@@ -70,6 +78,15 @@ async function updateStatusBar(): Promise<void> {
       local: localData,
     };
 
+    const resetTime = getLimitReset(result.data);
+    if (resetTime) {
+      limitResetAt = resetTime;
+      statusBarManager.showLimitReached(resetTime);
+      stopRefreshInterval();
+      scheduleLimitResume(resetTime);
+      return;
+    }
+
     statusBarManager.update(combined);
     console.log('[Clauder] API data:', JSON.stringify(result.data, null, 2));
   } catch (error) {
@@ -94,6 +111,10 @@ async function promptForAuthentication(): Promise<void> {
 function setupRefreshInterval(): void {
   stopRefreshInterval();
 
+  if (shouldRemainPaused(limitResetAt)) {
+    return;
+  }
+
   const config = vscode.workspace.getConfiguration('clauder');
   const intervalSeconds = config.get<number>('refreshInterval', 30);
 
@@ -109,4 +130,35 @@ function stopRefreshInterval(): void {
 
 export function deactivate() {
   stopRefreshInterval();
+  clearLimitResumeTimeout();
+}
+
+function scheduleLimitResume(resetAt: Date): void {
+  clearLimitResumeTimeout();
+
+  const delay = computeResumeDelay(resetAt);
+  if (delay <= 0) {
+    clearLimitPause();
+    setupRefreshInterval();
+    updateStatusBar();
+    return;
+  }
+
+  limitResumeTimeout = setTimeout(() => {
+    clearLimitPause();
+    setupRefreshInterval();
+    updateStatusBar();
+  }, delay + 1000);
+}
+
+function clearLimitResumeTimeout(): void {
+  if (limitResumeTimeout) {
+    clearTimeout(limitResumeTimeout);
+    limitResumeTimeout = undefined;
+  }
+}
+
+function clearLimitPause(): void {
+  limitResetAt = null;
+  clearLimitResumeTimeout();
 }
