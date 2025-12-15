@@ -20,7 +20,6 @@ export type CombinedUsage = {
 export class StatusBarManager {
   private statusBarItem: vscode.StatusBarItem;
   private alternateTimer: NodeJS.Timeout | undefined;
-  private showWeeklyFocus = false;
   private cachedUsage: CombinedUsage | null = null;
   private rotationIntervalMs = 30000;
   private weeklyThreshold = DEFAULT_WEEKLY_ALERT_THRESHOLD;
@@ -149,7 +148,6 @@ export class StatusBarManager {
       this.alternateTimer = undefined;
     }
 
-    this.showWeeklyFocus = false;
   }
 
   private buildTooltip(usage: CombinedUsage): vscode.MarkdownString {
