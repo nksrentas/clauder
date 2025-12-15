@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   computeResumeDelay,
+  DEFAULT_WEEKLY_ALERT_THRESHOLD,
   getLimitReset,
   shouldHighlightWeekly,
   shouldRemainPaused,
@@ -101,8 +102,9 @@ describe('limit helpers', () => {
       weeklySonnet: null,
     };
 
-    expect(shouldHighlightWeekly(usage)).toBe(true);
-    expect(shouldHighlightWeekly(null)).toBe(false);
+    expect(shouldHighlightWeekly(usage, DEFAULT_WEEKLY_ALERT_THRESHOLD)).toBe(true);
+    expect(shouldHighlightWeekly(usage, 95)).toBe(false);
+    expect(shouldHighlightWeekly(null, DEFAULT_WEEKLY_ALERT_THRESHOLD)).toBe(false);
   });
 });
 
@@ -115,7 +117,7 @@ describe('StatusBarManager limit display', () => {
 
     const bar = (manager as any).statusBarItem;
     expect(bar.text.toLowerCase()).toContain('limit reached');
-    expect(bar.text).toContain('1h');
+    expect(bar.text).toMatch(/\d+m/);
     expect(bar.tooltip).toContain('Polling paused');
     expect(bar.color).toBeInstanceOf((await import('vscode')).ThemeColor);
     manager.dispose();
@@ -136,10 +138,10 @@ describe('StatusBarManager weekly highlight rotation', () => {
 
     manager.update({ api: usage, local: null });
     const bar = (manager as any).statusBarItem;
-    expect(bar.text).toContain('Weekly');
+    expect(bar.text).toContain('W 95%');
 
     await vi.advanceTimersByTimeAsync(8100);
-    expect(bar.text).not.toContain('Weekly');
+    expect(bar.text).toContain('W 95%');
 
     manager.dispose();
     vi.useRealTimers();

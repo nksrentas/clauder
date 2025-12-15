@@ -75,7 +75,9 @@ async function updateStatusBar(): Promise<void> {
       const config = vscode.workspace.getConfiguration('clauder');
       const plan = config.get<PlanType>('plan', 'max5');
       const rotationInterval = config.get<number>('weeklyHighlightInterval', 30) * 1000;
+      const weeklyThreshold = config.get<number>('weeklyHighlightThreshold', 90);
       statusBarManager.setWeeklyRotationInterval(rotationInterval);
+      statusBarManager.setWeeklyThreshold(weeklyThreshold);
       localData = await usageTracker.calculateUsage(plan);
     } catch {
       console.log('[Clauder] Local data fetch failed, continuing with API only');

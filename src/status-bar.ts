@@ -7,8 +7,8 @@ import {
   formatTokens,
   getUsageColor,
 } from '~/formatters';
+import { DEFAULT_WEEKLY_ALERT_THRESHOLD, shouldHighlightWeekly } from '~/limit';
 import type { LimitReset } from '~/limit';
-import { shouldHighlightWeekly } from '~/limit';
 import type { ModelFamily, UsageSummary } from '~/types';
 import type { UsageData } from '~/usage-api';
 
@@ -23,6 +23,7 @@ export class StatusBarManager {
   private showWeeklyFocus = false;
   private cachedUsage: CombinedUsage | null = null;
   private rotationIntervalMs = 30000;
+  private weeklyThreshold = DEFAULT_WEEKLY_ALERT_THRESHOLD;
 
   constructor() {
     this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -39,16 +40,32 @@ export class StatusBarManager {
     this.rotationIntervalMs = clamped;
     if (this.alternateTimer && this.cachedUsage) {
       this.toggleWeeklyRotation(false);
-      const highlight = shouldHighlightWeekly(this.cachedUsage.api);
+      const highlight = shouldHighlightWeekly(this.cachedUsage.api, this.weeklyThreshold);
       this.toggleWeeklyRotation(highlight);
+    }
+  }
+
+  setWeeklyThreshold(threshold: number): void {
+    const clamped = Math.max(50, Math.min(100, threshold));
+    this.weeklyThreshold = clamped;
+    if (this.cachedUsage) {
+      const highlight = shouldHighlightWeekly(this.cachedUsage.api, this.weeklyThreshold);
+      this.toggleWeeklyRotation(highlight);
+      this.render(this.cachedUsage, highlight && this.showWeeklyFocus);
     }
   }
 
   update(usage: CombinedUsage): void {
     this.cachedUsage = usage;
-    const weeklyHighlight = shouldHighlightWeekly(usage.api);
-    this.toggleWeeklyRotation(weeklyHighlight);
-    this.render(usage, weeklyHighlight && this.showWeeklyFocus);
+    const weeklyHighlight = shouldHighlightWeekly(usage.api, this.weeklyThreshold);
+    if (weeklyHighlight) {
+      this.toggleWeeklyRotation(false);
+      this.render(usage, false, true);
+      return;
+    }
+
+    this.toggleWeeklyRotation(false);
+    this.render(usage, false, false);
   }
 
   showLoading(): void {
@@ -79,66 +96,73 @@ export class StatusBarManager {
           ? 'Weekly limit reached'
           : 'Weekly Sonnet limit reached';
 
-    this.statusBarItem.text = `$(error) Claude: ${label} | ${timeRemaining}`;
+    this.statusBarItem.text = `$(error) ${label} | ${timeRemaining}`;
     this.statusBarItem.tooltip = 'Limit reached. Polling paused until the window resets.';
     this.statusBarItem.color = new vscode.ThemeColor('errorForeground');
   }
 
-  private render(usage: CombinedUsage, showWeekly: boolean): void {
-    if (showWeekly && usage.api) {
-      const percent = Math.round(usage.api.weeklyAll.utilization);
-      const time = usage.api.weeklyAll.resetsAt
-        ? formatResetDay(usage.api.weeklyAll.resetsAt)
-        : 'N/A';
-
-      this.statusBarItem.text = `$(sparkle) Claude: Weekly ${percent}% | ${time}`;
-      this.statusBarItem.color = getUsageColor(percent);
-      this.statusBarItem.tooltip = this.buildTooltip(usage);
-      return;
-    }
-
+  private render(usage: CombinedUsage, showWeekly: boolean, inlineWeekly: boolean): void {
     if (usage.api) {
-      const percent = Math.round(usage.api.session.utilization);
-      const timeRemaining = usage.api.session.resetsAt
+      const sessionPercent = Math.round(usage.api.session.utilization);
+      const sessionTime = usage.api.session.resetsAt
         ? formatTimeRemaining(usage.api.session.resetsAt)
         : 'N/A';
 
-      this.statusBarItem.text = `$(sparkle) Claude: ${percent}% | ${timeRemaining}`;
-      this.statusBarItem.color = getUsageColor(percent);
+      if (inlineWeekly) {
+        const weeklyPercent = Math.round(usage.api.weeklyAll.utilization);
+        const weeklyTime = usage.api.weeklyAll.resetsAt
+          ? formatResetDay(usage.api.weeklyAll.resetsAt)
+          : 'N/A';
+        this.statusBarItem.text = `$(sparkle) ${sessionPercent}% | ${sessionTime} · W ${weeklyPercent}% | ${weeklyTime}`;
+        this.statusBarItem.color = getUsageColor(sessionPercent);
+        this.statusBarItem.tooltip = this.buildTooltip(usage);
+        return;
+      }
+
+      if (showWeekly) {
+        const percent = Math.round(usage.api.weeklyAll.utilization);
+        const time = usage.api.weeklyAll.resetsAt
+          ? formatResetDay(usage.api.weeklyAll.resetsAt)
+          : 'N/A';
+
+        this.statusBarItem.text = `$(sparkle) W ${percent}% | ${time}`;
+        this.statusBarItem.color = getUsageColor(percent);
+        this.statusBarItem.tooltip = this.buildTooltip(usage);
+        return;
+      }
+
+      this.statusBarItem.text = `$(sparkle) ${sessionPercent}% | ${sessionTime}`;
+      this.statusBarItem.color = getUsageColor(sessionPercent);
       this.statusBarItem.tooltip = this.buildTooltip(usage);
     } else if (usage.local) {
       const percent = Math.round(usage.local.windowPercentage);
       const timeRemaining = formatTimeRemaining(usage.local.windowEndTime);
 
-      this.statusBarItem.text = `$(sparkle) Claude (est): ~${percent}% | ${timeRemaining}`;
+      this.statusBarItem.text = `$(sparkle) ~${percent}% | ${timeRemaining}`;
       this.statusBarItem.color = getUsageColor(percent);
       this.statusBarItem.tooltip = this.buildLocalTooltip(usage.local);
     } else {
-      this.statusBarItem.text = '$(sparkle) Claude: N/A';
+      this.statusBarItem.text = '$(sparkle) N/A';
       this.statusBarItem.tooltip = 'Unable to fetch usage data';
     }
   }
 
   private toggleWeeklyRotation(enable: boolean): void {
-    if (enable) {
-      if (this.alternateTimer) {
-        return;
-      }
-      this.showWeeklyFocus = true;
-      this.alternateTimer = setInterval(() => {
-        this.showWeeklyFocus = !this.showWeeklyFocus;
-        if (this.cachedUsage) {
-          this.render(this.cachedUsage, this.showWeeklyFocus);
-        }
-      }, this.rotationIntervalMs);
-      return;
-    }
-
     if (this.alternateTimer) {
       clearInterval(this.alternateTimer);
       this.alternateTimer = undefined;
     }
-    this.showWeeklyFocus = false;
+
+    if (enable && this.cachedUsage) {
+      this.showWeeklyFocus = true;
+      this.render(this.cachedUsage, true, false);
+      this.alternateTimer = setInterval(() => {
+        this.showWeeklyFocus = !this.showWeeklyFocus;
+        this.render(this.cachedUsage!, this.showWeeklyFocus, false);
+      }, this.rotationIntervalMs);
+    } else {
+      this.showWeeklyFocus = false;
+    }
   }
 
   private buildTooltip(usage: CombinedUsage): vscode.MarkdownString {

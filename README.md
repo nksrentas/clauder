@@ -36,11 +36,12 @@ $(sparkle) Claude: 61% | 2h 15m
 
 ## Configuration
 
-| Setting                           | Default | Description                                                |
-| --------------------------------- | ------- | ---------------------------------------------------------- |
-| `clauder.plan`                    | `pro`   | Your subscription plan (pro, max5, max20)                  |
-| `clauder.refreshInterval`         | `30`    | Auto-refresh interval in seconds                           |
-| `clauder.weeklyHighlightInterval` | `30`    | Seconds between session/weekly status bar rotations (near weekly limit) |
+| Setting                           | Default | Description                                                                 |
+| --------------------------------- | ------- | --------------------------------------------------------------------------- |
+| `clauder.plan`                    | `pro`   | Your subscription plan (`pro`, `max5`, `max20`)                             |
+| `clauder.refreshInterval`         | `30`    | Auto-refresh interval in seconds (min 5, max 300)                          |
+| `clauder.weeklyHighlightInterval` | `30`    | Seconds between session/weekly rotations when weekly usage is highlighted   |
+| `clauder.weeklyHighlightThreshold`| `90`    | Weekly utilization % that triggers showing weekly alongside session (50–100)|
 
 ## License
 

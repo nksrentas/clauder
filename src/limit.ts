@@ -7,7 +7,7 @@ export type LimitReset = {
   resetAt: Date;
 };
 
-export const WEEKLY_ALERT_THRESHOLD = 90;
+export const DEFAULT_WEEKLY_ALERT_THRESHOLD = 90;
 
 export function getLimitReset(data: UsageData | null): LimitReset | null {
   if (!data) {
@@ -37,10 +37,13 @@ export function computeResumeDelay(limit: LimitReset, nowMs: number = Date.now()
   return Math.max(0, limit.resetAt.getTime() - nowMs);
 }
 
-export function shouldHighlightWeekly(data: UsageData | null): boolean {
+export function shouldHighlightWeekly(
+  data: UsageData | null,
+  threshold: number = DEFAULT_WEEKLY_ALERT_THRESHOLD
+): boolean {
   if (!data || !data.weeklyAll.resetsAt) {
     return false;
   }
 
-  return data.weeklyAll.utilization >= WEEKLY_ALERT_THRESHOLD;
+  return data.weeklyAll.utilization >= threshold;
 }
