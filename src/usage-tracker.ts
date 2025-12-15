@@ -15,19 +15,11 @@ export class UsageTracker {
   }
 
   async calculateUsage(plan: PlanType): Promise<UsageSummary> {
-    console.log('[Clauder] Starting calculation...');
-    console.log('[Clauder] Data path:', this.claudeDataPath);
-
     const entries = await this.getAllUsageEntries();
-    console.log('[Clauder] Total entries with usage data:', entries.length);
-
     const now = new Date();
     const windowStart = this.getWindowStart(entries, now);
     const windowEnd = new Date(windowStart.getTime() + WINDOW_DURATION_MS);
     const { weekStart, weekEnd } = getWeekBoundaries(now);
-
-    console.log('[Clauder] Window:', windowStart.toISOString(), 'to', windowEnd.toISOString());
-    console.log('[Clauder] Week:', weekStart.toISOString(), 'to', weekEnd.toISOString());
 
     let windowTokens = 0;
     let weeklyTokens = 0;
@@ -76,11 +68,6 @@ export class UsageTracker {
       totalCost += usage.cost;
     }
 
-    console.log('[Clauder] Window: entries=' + windowEntryCount + ', tokens=' + windowTokens);
-    console.log('[Clauder] Weekly: entries=' + weekEntryCount + ', tokens=' + weeklyTokens);
-    console.log('[Clauder] Model breakdown:', JSON.stringify(modelBreakdown, null, 2));
-    console.log('[Clauder] Total cost: $' + totalCost.toFixed(2));
-
     const limits = PLAN_LIMITS[plan];
     const weeklyTokenLimit = limits.weeklyHours * TOKENS_PER_HOUR_ESTIMATE;
 
@@ -99,7 +86,6 @@ export class UsageTracker {
       totalCost,
     };
 
-    console.log('[Clauder] Result:', JSON.stringify(result, null, 2));
     return result;
   }
 
@@ -121,12 +107,10 @@ export class UsageTracker {
     const entries: SessionEntry[] = [];
 
     if (!fs.existsSync(this.claudeDataPath)) {
-      console.log('[Clauder] Data path does not exist:', this.claudeDataPath);
       return entries;
     }
 
     const jsonlFiles = this.findJsonlFiles(this.claudeDataPath);
-    console.log('[Clauder] Found', jsonlFiles.length, 'total JSONL files');
 
     const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     let filesProcessed = 0;

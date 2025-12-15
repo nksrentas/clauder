@@ -24,6 +24,7 @@ export class StatusBarManager {
   private cachedUsage: CombinedUsage | null = null;
   private rotationIntervalMs = 30000;
   private weeklyThreshold = DEFAULT_WEEKLY_ALERT_THRESHOLD;
+  private lastStatusText: string | null = null;
 
   constructor() {
     this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -51,7 +52,7 @@ export class StatusBarManager {
     if (this.cachedUsage) {
       const highlight = shouldHighlightWeekly(this.cachedUsage.api, this.weeklyThreshold);
       this.toggleWeeklyRotation(highlight);
-      this.render(this.cachedUsage, highlight && this.showWeeklyFocus);
+      this.render(this.cachedUsage, highlight);
     }
   }
 
@@ -60,38 +61,32 @@ export class StatusBarManager {
     const weeklyHighlight = shouldHighlightWeekly(usage.api, this.weeklyThreshold);
     if (weeklyHighlight) {
       this.toggleWeeklyRotation(false);
-      this.render(usage, false, true);
+      this.render(usage, true);
       return;
     }
 
     this.toggleWeeklyRotation(false);
-    this.render(usage, false, false);
+    this.render(usage, false);
   }
 
   showLoading(): void {
-    const existingText = this.statusBarItem.text?.trim();
+    const existingText = this.lastStatusText || this.statusBarItem.text;
     if (existingText) {
-      if (existingText.startsWith('$(sync~spin)')) {
-        this.statusBarItem.text = existingText;
-      } else if (existingText.startsWith('$(sparkle)')) {
-        this.statusBarItem.text = existingText.replace('$(sparkle)', '$(sync~spin)');
-      } else {
-        this.statusBarItem.text = `$(sync~spin) ${existingText}`;
-      }
+      this.setStatusText(this.withSpinnerIcon(existingText), false);
     } else {
-      this.statusBarItem.text = '$(sync~spin) Claude: Loading...';
+      this.setStatusText('$(sync~spin) Claude: Loading...', false);
     }
     this.statusBarItem.tooltip = 'Fetching usage data...';
   }
 
   showError(message: string): void {
-    this.statusBarItem.text = '$(warning) Claude: Error';
+    this.setStatusText('$(warning) Claude: Error');
     this.statusBarItem.tooltip = message;
     this.statusBarItem.color = new vscode.ThemeColor('errorForeground');
   }
 
   showNotAuthenticated(): void {
-    this.statusBarItem.text = '$(sparkle) Claude: Not authenticated';
+    this.setStatusText('$(sparkle) Claude: Not authenticated');
     this.statusBarItem.tooltip = 'Click to authenticate with Claude Code';
     this.statusBarItem.color = undefined;
   }
@@ -103,16 +98,16 @@ export class StatusBarManager {
     const label =
       limit.kind === 'session'
         ? '5h limit reached'
-        : limit.kind === 'weeklyAll'
-          ? 'Weekly limit reached'
-          : 'Weekly Sonnet limit reached';
+          : limit.kind === 'weeklyAll'
+            ? 'Weekly limit reached'
+            : 'Weekly Sonnet limit reached';
 
-    this.statusBarItem.text = `$(error) ${label} | ${timeRemaining}`;
+    this.setStatusText(`$(error) ${label} | ${timeRemaining}`);
     this.statusBarItem.tooltip = 'Limit reached. Polling paused until the window resets.';
     this.statusBarItem.color = new vscode.ThemeColor('errorForeground');
   }
 
-  private render(usage: CombinedUsage, showWeekly: boolean, inlineWeekly: boolean): void {
+  private render(usage: CombinedUsage, inlineWeekly: boolean): void {
     if (usage.api) {
       const sessionPercent = Math.round(usage.api.session.utilization);
       const sessionTime = usage.api.session.resetsAt
@@ -124,36 +119,26 @@ export class StatusBarManager {
         const weeklyTime = usage.api.weeklyAll.resetsAt
           ? formatResetDay(usage.api.weeklyAll.resetsAt)
           : 'N/A';
-        this.statusBarItem.text = `$(sparkle) ${sessionPercent}% | ${sessionTime} · W ${weeklyPercent}% | ${weeklyTime}`;
+        this.setStatusText(
+          `$(sparkle) ${sessionPercent}% | ${sessionTime} · W ${weeklyPercent}% | ${weeklyTime}`
+        );
         this.statusBarItem.color = getUsageColor(sessionPercent);
         this.statusBarItem.tooltip = this.buildTooltip(usage);
         return;
       }
 
-      if (showWeekly) {
-        const percent = Math.round(usage.api.weeklyAll.utilization);
-        const time = usage.api.weeklyAll.resetsAt
-          ? formatResetDay(usage.api.weeklyAll.resetsAt)
-          : 'N/A';
-
-        this.statusBarItem.text = `$(sparkle) W ${percent}% | ${time}`;
-        this.statusBarItem.color = getUsageColor(percent);
-        this.statusBarItem.tooltip = this.buildTooltip(usage);
-        return;
-      }
-
-      this.statusBarItem.text = `$(sparkle) ${sessionPercent}% | ${sessionTime}`;
+      this.setStatusText(`$(sparkle) ${sessionPercent}% | ${sessionTime}`);
       this.statusBarItem.color = getUsageColor(sessionPercent);
       this.statusBarItem.tooltip = this.buildTooltip(usage);
     } else if (usage.local) {
       const percent = Math.round(usage.local.windowPercentage);
       const timeRemaining = formatTimeRemaining(usage.local.windowEndTime);
 
-      this.statusBarItem.text = `$(sparkle) ~${percent}% | ${timeRemaining}`;
+      this.setStatusText(`$(sparkle) ~${percent}% | ${timeRemaining}`);
       this.statusBarItem.color = getUsageColor(percent);
       this.statusBarItem.tooltip = this.buildLocalTooltip(usage.local);
     } else {
-      this.statusBarItem.text = '$(sparkle) N/A';
+      this.setStatusText('$(sparkle) N/A');
       this.statusBarItem.tooltip = 'Unable to fetch usage data';
     }
   }
@@ -164,16 +149,7 @@ export class StatusBarManager {
       this.alternateTimer = undefined;
     }
 
-    if (enable && this.cachedUsage) {
-      this.showWeeklyFocus = true;
-      this.render(this.cachedUsage, true, false);
-      this.alternateTimer = setInterval(() => {
-        this.showWeeklyFocus = !this.showWeeklyFocus;
-        this.render(this.cachedUsage!, this.showWeeklyFocus, false);
-      }, this.rotationIntervalMs);
-    } else {
-      this.showWeeklyFocus = false;
-    }
+    this.showWeeklyFocus = false;
   }
 
   private buildTooltip(usage: CombinedUsage): vscode.MarkdownString {
@@ -257,5 +233,23 @@ export class StatusBarManager {
   dispose(): void {
     this.toggleWeeklyRotation(false);
     this.statusBarItem.dispose();
+  }
+
+  private setStatusText(text: string, remember = true): void {
+    if (this.statusBarItem.text !== text) {
+      this.statusBarItem.text = text;
+    }
+    if (remember) {
+      this.lastStatusText = text;
+    }
+  }
+
+  private withSpinnerIcon(text: string): string {
+    const iconMatch = text.match(/^(\$\([^)]+\))\s*/);
+    if (iconMatch) {
+      return text.replace(iconMatch[0], '$(sync~spin) ');
+    }
+
+    return `$(sync~spin) ${text}`;
   }
 }
