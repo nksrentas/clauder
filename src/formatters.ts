@@ -23,12 +23,13 @@ export function formatTimeRemaining(endTime: Date, now: Date = new Date()): stri
 export function formatResetDay(date: Date): string {
   const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const day = days[date.getDay()];
+  const dayOfMonth = date.getDate();
   const hours = date.getHours();
   const minutes = date.getMinutes();
   const ampm = hours >= 12 ? 'PM' : 'AM';
   const hour12 = hours % 12 || 12;
   const minuteStr = minutes.toString().padStart(2, '0');
-  return `${day} ${hour12}:${minuteStr} ${ampm}`;
+  return `${day} ${dayOfMonth} ${hour12}:${minuteStr} ${ampm}`;
 }
 
 export function formatTokens(tokens: number): string {

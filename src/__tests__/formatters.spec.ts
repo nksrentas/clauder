@@ -38,19 +38,19 @@ describe('formatResetDay', () => {
   it('formats date with day name and 12-hour time', () => {
     const date = new Date('2024-01-15T14:30:00');
     const result = formatResetDay(date);
-    expect(result).toMatch(/Mon 2:30 PM/);
+    expect(result).toBe('Mon 15 2:30 PM');
   });
 
   it('handles midnight correctly', () => {
     const date = new Date('2024-01-15T00:00:00');
     const result = formatResetDay(date);
-    expect(result).toMatch(/Mon 12:00 AM/);
+    expect(result).toBe('Mon 15 12:00 AM');
   });
 
   it('handles noon correctly', () => {
     const date = new Date('2024-01-15T12:00:00');
     const result = formatResetDay(date);
-    expect(result).toMatch(/Mon 12:00 PM/);
+    expect(result).toBe('Mon 15 12:00 PM');
   });
 });
 
