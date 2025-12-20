@@ -122,5 +122,118 @@ describe('StatusBarManager limit display', () => {
     expect(bar.color).toBeInstanceOf((await import('vscode')).ThemeColor);
     manager.dispose();
   });
+
+  it('shows weekly limit reached message', async () => {
+    const manager = new StatusBarManager();
+    const resetAt = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
+
+    manager.showLimitReached({ kind: 'weeklyAll', resetAt });
+
+    const bar = (manager as any).statusBarItem;
+    expect(bar.text.toLowerCase()).toContain('weekly limit reached');
+    expect(bar.tooltip).toContain('You hit 100% of your weekly limit');
+    expect(bar.color).toBeInstanceOf((await import('vscode')).ThemeColor);
+    manager.dispose();
+  });
+
+  it('shows weekly Sonnet limit reached message', async () => {
+    const manager = new StatusBarManager();
+    const resetAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+
+    manager.showLimitReached({ kind: 'weeklySonnet', resetAt });
+
+    const bar = (manager as any).statusBarItem;
+    expect(bar.text.toLowerCase()).toContain('weekly sonnet limit reached');
+    expect(bar.tooltip).toContain('You hit 100% of your weekly Sonnet limit');
+    expect(bar.color).toBeInstanceOf((await import('vscode')).ThemeColor);
+    manager.dispose();
+  });
+});
+
+describe('StatusBarManager error states', () => {
+  it('shows error message with custom tooltip', async () => {
+    const manager = new StatusBarManager();
+
+    manager.showError('API request failed');
+
+    const bar = (manager as any).statusBarItem;
+    expect(bar.text).toContain('Error');
+    expect(bar.tooltip).toBe('API request failed');
+    expect(bar.color).toBeInstanceOf((await import('vscode')).ThemeColor);
+    manager.dispose();
+  });
+
+  it('shows not authenticated message', () => {
+    const manager = new StatusBarManager();
+
+    manager.showNotAuthenticated();
+
+    const bar = (manager as any).statusBarItem;
+    expect(bar.text).toContain('Not authenticated');
+    expect(bar.tooltip).toBe('Click to authenticate with Claude Code');
+    expect(bar.color).toBeUndefined();
+    manager.dispose();
+  });
+});
+
+describe('StatusBarManager local usage display', () => {
+  it('renders local usage when API is unavailable', () => {
+    const manager = new StatusBarManager();
+    const localUsage = {
+      windowPercentage: 45,
+      weeklyPercentage: 30,
+      windowEndTime: new Date(Date.now() + 2 * 60 * 60 * 1000),
+      totalCost: 5.25,
+      modelBreakdown: {
+        opus: { requests: 0, inputTokens: 0, outputTokens: 0, cost: 0 },
+        sonnet: { requests: 10, inputTokens: 50000, outputTokens: 25000, cost: 5.25 },
+        haiku: { requests: 0, inputTokens: 0, outputTokens: 0, cost: 0 },
+      },
+    };
+
+    manager.update({ api: null, local: localUsage });
+
+    const bar = (manager as any).statusBarItem;
+    expect(bar.text).toContain('~45%');
+    expect(bar.tooltip.value).toContain('Claude Code Usage (Estimate)');
+    expect(bar.tooltip.value).toContain('~45% used');
+    expect(bar.tooltip.value).toContain('~30% used');
+    expect(bar.tooltip.value).toContain('$5.25');
+    manager.dispose();
+  });
+
+  it('renders local usage without cost when zero', () => {
+    const manager = new StatusBarManager();
+    const localUsage = {
+      windowPercentage: 20,
+      weeklyPercentage: 10,
+      windowEndTime: new Date(Date.now() + 3 * 60 * 60 * 1000),
+      totalCost: 0,
+      modelBreakdown: {
+        opus: { requests: 0, inputTokens: 0, outputTokens: 0, cost: 0 },
+        sonnet: { requests: 0, inputTokens: 0, outputTokens: 0, cost: 0 },
+        haiku: { requests: 0, inputTokens: 0, outputTokens: 0, cost: 0 },
+      },
+    };
+
+    manager.update({ api: null, local: localUsage });
+
+    const bar = (manager as any).statusBarItem;
+    expect(bar.tooltip.value).not.toContain('Est. Cost');
+    manager.dispose();
+  });
+});
+
+describe('getLimitReset weeklySonnet edge case', () => {
+  it('returns weeklySonnet limit when at 100%', () => {
+    const resetAt = new Date();
+    const usage = {
+      session: { utilization: 50, resetsAt: null },
+      weeklyAll: { utilization: 80, resetsAt: null },
+      weeklySonnet: { utilization: 100, resetsAt: resetAt },
+    };
+
+    expect(getLimitReset(usage)).toEqual({ kind: 'weeklySonnet', resetAt });
+  });
 });
 

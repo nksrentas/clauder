@@ -23,6 +23,27 @@ export type FetchResult =
   | { status: 'no_token' }
   | { status: 'error'; message: string };
 
+export function parseOAuthResponse(response: OAuthUsageResponse): UsageData {
+  return {
+    session: {
+      utilization: response.five_hour?.utilization ?? 0,
+      resetsAt: response.five_hour?.resets_at ? new Date(response.five_hour.resets_at) : null,
+    },
+    weeklyAll: {
+      utilization: response.seven_day?.utilization ?? 0,
+      resetsAt: response.seven_day?.resets_at ? new Date(response.seven_day.resets_at) : null,
+    },
+    weeklySonnet: response.seven_day_sonnet
+      ? {
+          utilization: response.seven_day_sonnet.utilization,
+          resetsAt: response.seven_day_sonnet.resets_at
+            ? new Date(response.seven_day_sonnet.resets_at)
+            : null,
+        }
+      : null,
+  };
+}
+
 export class UsageApiClient {
   private static readonly KEYCHAIN_SERVICE = 'Claude Code-credentials';
 
@@ -35,7 +56,7 @@ export class UsageApiClient {
       }
 
       const response = await this.callApi(token);
-      return { status: 'success', data: this.parseResponse(response) };
+      return { status: 'success', data: parseOAuthResponse(response) };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       console.error('[Clauder] API error:', error);
@@ -97,26 +118,5 @@ export class UsageApiClient {
       req.on('error', reject);
       req.end();
     });
-  }
-
-  private parseResponse(response: OAuthUsageResponse): UsageData {
-    return {
-      session: {
-        utilization: response.five_hour?.utilization ?? 0,
-        resetsAt: response.five_hour?.resets_at ? new Date(response.five_hour.resets_at) : null,
-      },
-      weeklyAll: {
-        utilization: response.seven_day?.utilization ?? 0,
-        resetsAt: response.seven_day?.resets_at ? new Date(response.seven_day.resets_at) : null,
-      },
-      weeklySonnet: response.seven_day_sonnet
-        ? {
-            utilization: response.seven_day_sonnet.utilization,
-            resetsAt: response.seven_day_sonnet.resets_at
-              ? new Date(response.seven_day_sonnet.resets_at)
-              : null,
-          }
-        : null,
-    };
   }
 }

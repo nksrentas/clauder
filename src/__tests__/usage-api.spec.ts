@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { FetchResult, OAuthUsageResponse, UsageData } from '~/usage-api';
+import { parseOAuthResponse } from '~/usage-api';
 
 describe('FetchResult type', () => {
   it('success result contains UsageData', () => {
@@ -82,5 +83,72 @@ describe('UsageData structure', () => {
     };
 
     expect(data.weeklySonnet).not.toBeNull();
+  });
+});
+
+describe('parseOAuthResponse', () => {
+  it('parses complete response with all fields', () => {
+    const response: OAuthUsageResponse = {
+      five_hour: { utilization: 61, resets_at: '2025-12-06T21:00:00Z' },
+      seven_day: { utilization: 81, resets_at: '2025-12-08T20:00:00Z' },
+      seven_day_sonnet: { utilization: 6, resets_at: '2025-12-08T22:00:00Z' },
+    };
+
+    const result = parseOAuthResponse(response);
+
+    expect(result.session.utilization).toBe(61);
+    expect(result.session.resetsAt).toEqual(new Date('2025-12-06T21:00:00Z'));
+    expect(result.weeklyAll.utilization).toBe(81);
+    expect(result.weeklyAll.resetsAt).toEqual(new Date('2025-12-08T20:00:00Z'));
+    expect(result.weeklySonnet).not.toBeNull();
+    expect(result.weeklySonnet?.utilization).toBe(6);
+    expect(result.weeklySonnet?.resetsAt).toEqual(new Date('2025-12-08T22:00:00Z'));
+  });
+
+  it('handles null five_hour and seven_day fields', () => {
+    const response: OAuthUsageResponse = {
+      five_hour: null,
+      seven_day: null,
+      seven_day_sonnet: null,
+    };
+
+    const result = parseOAuthResponse(response);
+
+    expect(result.session.utilization).toBe(0);
+    expect(result.session.resetsAt).toBeNull();
+    expect(result.weeklyAll.utilization).toBe(0);
+    expect(result.weeklyAll.resetsAt).toBeNull();
+    expect(result.weeklySonnet).toBeNull();
+  });
+
+  it('handles missing resets_at in limits', () => {
+    const response: OAuthUsageResponse = {
+      five_hour: { utilization: 50, resets_at: null },
+      seven_day: { utilization: 30, resets_at: null },
+      seven_day_sonnet: { utilization: 10, resets_at: null },
+    };
+
+    const result = parseOAuthResponse(response);
+
+    expect(result.session.utilization).toBe(50);
+    expect(result.session.resetsAt).toBeNull();
+    expect(result.weeklyAll.utilization).toBe(30);
+    expect(result.weeklyAll.resetsAt).toBeNull();
+    expect(result.weeklySonnet?.utilization).toBe(10);
+    expect(result.weeklySonnet?.resetsAt).toBeNull();
+  });
+
+  it('handles response without seven_day_sonnet', () => {
+    const response: OAuthUsageResponse = {
+      five_hour: { utilization: 75, resets_at: '2025-12-06T21:00:00Z' },
+      seven_day: { utilization: 40, resets_at: '2025-12-08T20:00:00Z' },
+      seven_day_sonnet: null,
+    };
+
+    const result = parseOAuthResponse(response);
+
+    expect(result.session.utilization).toBe(75);
+    expect(result.weeklyAll.utilization).toBe(40);
+    expect(result.weeklySonnet).toBeNull();
   });
 });
