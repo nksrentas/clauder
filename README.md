@@ -1,7 +1,8 @@
 # Clauder
 
-[![Version](https://img.shields.io/visual-studio-marketplace/v/nrentas.clauder)](https://marketplace.visualstudio.com/items?itemName=nrentas.clauder)
-[![Installs](https://img.shields.io/visual-studio-marketplace/i/nrentas.clauder)](https://marketplace.visualstudio.com/items?itemName=nrentas.clauder)
+[![VS Marketplace](https://img.shields.io/visual-studio-marketplace/v/nrentas.clauder)](https://marketplace.visualstudio.com/items?itemName=nrentas.clauder)
+[![VS Marketplace Installs](https://img.shields.io/visual-studio-marketplace/i/nrentas.clauder)](https://marketplace.visualstudio.com/items?itemName=nrentas.clauder)
+[![Open VSX](https://img.shields.io/open-vsx/dt/nrentas/clauder)](https://open-vsx.org/extension/nrentas/clauder)
 [![codecov](https://codecov.io/gh/nksrentas/clauder/graph/badge.svg)](https://codecov.io/gh/nksrentas/clauder)
 
 A VS Code extension that displays your Claude Code usage in the status bar. Monitor your 5-hour session and weekly limits at a glance.
