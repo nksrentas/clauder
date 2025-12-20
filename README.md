@@ -1,47 +1,75 @@
 # Clauder
 
-![Clauder](images/clauder-img.png)
+[![Version](https://img.shields.io/visual-studio-marketplace/v/nrentas.clauder)](https://marketplace.visualstudio.com/items?itemName=nrentas.clauder)
+[![Installs](https://img.shields.io/visual-studio-marketplace/i/nrentas.clauder)](https://marketplace.visualstudio.com/items?itemName=nrentas.clauder)
+[![codecov](https://codecov.io/gh/nksrentas/clauder/graph/badge.svg)](https://codecov.io/gh/nksrentas/clauder)
 
-VS Code extension that displays your Claude Code usage in the status bar.
+A VS Code extension that displays your Claude Code usage in the status bar. Monitor your 5-hour session and weekly limits at a glance.
+
+![Demo](images/clauder-demo.gif)
 
 ## Features
 
-- Real-time usage data from Anthropic's OAuth API
-- Status bar shows current session usage percentage and time until reset
-- Hover tooltip with detailed breakdown:
-  - Current session usage
-  - Weekly usage (all models)
-  - Weekly usage (Sonnet only)
-  - Model breakdown with cost estimates
+**Status Bar Display**
+- Shows your current 5-hour session usage with time until reset
+- Color-coded indicator that shifts from tan to red as usage increases
+- Automatically shows weekly usage when approaching your weekly limit
+
+**Limit Detection**
+- Alerts you when you hit the 5-hour or weekly limit
+- Automatically pauses polling and resumes when your limit resets
+
+**Detailed Tooltip**
+- Weekly usage for all models with reset day/time
+- Weekly Sonnet-only usage (if applicable)
+- Model breakdown with token counts and estimated costs
 
 ## Requirements
 
 - macOS (uses Keychain for OAuth credentials)
-- Claude Code CLI installed and authenticated
+- Claude Code CLI installed and authenticated (`claude` command)
 
 ## Installation
 
-Install from the VS Code Marketplace or search for "Clauder" in the Extensions view.
+Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=nrentas.clauder) or search for "Clauder" in VS Code Extensions.
 
-## Usage
+## How It Works
 
-The extension activates automatically. Look for the sparkle icon in the status bar:
+The extension reads your OAuth token from macOS Keychain (stored by Claude Code CLI) and fetches usage data from Anthropic's API.
+
+**Status bar examples:**
 
 ```
-$(sparkle) Claude: 61% | 2h 15m
+61% | 2h 15m              Normal usage
+61% | 2h 15m · W 92% | Sun 22   Weekly usage highlighted (>90%)
+5h limit reached | 45m    Limit hit, shows time until reset
 ```
 
-- Click the status bar item to refresh
-- Run "Clauder: Refresh" from Command Palette
+**Hover for details:**
+
+Hover over the status bar item to see a breakdown of your weekly usage across all models, Sonnet-specific limits, and estimated costs.
 
 ## Configuration
 
-| Setting                           | Default | Description                                                                 |
-| --------------------------------- | ------- | --------------------------------------------------------------------------- |
-| `clauder.plan`                    | `pro`   | Your subscription plan (`pro`, `max5`, `max20`)                             |
-| `clauder.refreshInterval`         | `30`    | Auto-refresh interval in seconds (min 5, max 300)                          |
-| `clauder.weeklyHighlightInterval` | `30`    | Seconds between session/weekly rotations when weekly usage is highlighted   |
-| `clauder.weeklyHighlightThreshold`| `90`    | Weekly utilization % that triggers showing weekly alongside session (50–100)|
+| Setting                            | Default | Description                                              |
+| ---------------------------------- | ------- | -------------------------------------------------------- |
+| `clauder.plan`                     | `pro`   | Your subscription plan: `pro`, `max5`, or `max20`        |
+| `clauder.refreshInterval`          | `30`    | Auto-refresh interval in seconds (5-300)                 |
+| `clauder.weeklyHighlightThreshold` | `90`    | Show weekly usage in status bar when above this % (50-100) |
+
+## Commands
+
+- **Clauder: Refresh** - Manually refresh usage data (or click the status bar)
+
+## Troubleshooting
+
+**"Not authenticated" message**
+
+Run `claude` in your terminal and complete the authentication flow. The extension reads credentials from the same Keychain entry used by Claude Code CLI.
+
+**Usage data not updating**
+
+Click the status bar item or run "Clauder: Refresh" from the Command Palette.
 
 ## License
 

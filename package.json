@@ -69,13 +69,6 @@
           "maximum": 300,
           "description": "Refresh interval in seconds"
         },
-        "clauder.weeklyHighlightInterval": {
-          "type": "number",
-          "default": 30,
-          "minimum": 5,
-          "maximum": 300,
-          "description": "Seconds between status bar rotations when highlighting weekly usage"
-        },
         "clauder.weeklyHighlightThreshold": {
           "type": "number",
           "default": 90,
@@ -94,7 +87,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
     "@trivago/prettier-plugin-sort-imports": "^6.0.0",

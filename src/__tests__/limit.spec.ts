@@ -118,32 +118,9 @@ describe('StatusBarManager limit display', () => {
     const bar = (manager as any).statusBarItem;
     expect(bar.text.toLowerCase()).toContain('limit reached');
     expect(bar.text).toMatch(/\d+m/);
-    expect(bar.tooltip).toContain('Polling paused');
+    expect(bar.tooltip).toContain('You hit 100% of your 5-hour window');
     expect(bar.color).toBeInstanceOf((await import('vscode')).ThemeColor);
     manager.dispose();
   });
 });
 
-describe('StatusBarManager weekly highlight rotation', () => {
-  it('alternates between session and weekly views near weekly limit', async () => {
-    vi.useFakeTimers();
-    const manager = new StatusBarManager();
-    manager.setWeeklyRotationInterval(8000);
-    const resetAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-    const usage = {
-      session: { utilization: 40, resetsAt: new Date(Date.now() + 5 * 60 * 60 * 1000) },
-      weeklyAll: { utilization: 95, resetsAt: resetAt },
-      weeklySonnet: null,
-    };
-
-    manager.update({ api: usage, local: null });
-    const bar = (manager as any).statusBarItem;
-    expect(bar.text).toContain('W 95%');
-
-    await vi.advanceTimersByTimeAsync(8100);
-    expect(bar.text).toContain('W 95%');
-
-    manager.dispose();
-    vi.useRealTimers();
-  });
-});

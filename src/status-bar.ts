@@ -19,9 +19,7 @@ export type CombinedUsage = {
 
 export class StatusBarManager {
   private statusBarItem: vscode.StatusBarItem;
-  private alternateTimer: NodeJS.Timeout | undefined;
   private cachedUsage: CombinedUsage | null = null;
-  private rotationIntervalMs = 30000;
   private weeklyThreshold = DEFAULT_WEEKLY_ALERT_THRESHOLD;
   private lastStatusText: string | null = null;
 
@@ -31,26 +29,11 @@ export class StatusBarManager {
     this.statusBarItem.show();
   }
 
-  setWeeklyRotationInterval(intervalMs: number): void {
-    const clamped = Math.max(5000, intervalMs);
-    if (this.rotationIntervalMs === clamped) {
-      return;
-    }
-
-    this.rotationIntervalMs = clamped;
-    if (this.alternateTimer && this.cachedUsage) {
-      this.toggleWeeklyRotation(false);
-      const highlight = shouldHighlightWeekly(this.cachedUsage.api, this.weeklyThreshold);
-      this.toggleWeeklyRotation(highlight);
-    }
-  }
-
   setWeeklyThreshold(threshold: number): void {
     const clamped = Math.max(50, Math.min(100, threshold));
     this.weeklyThreshold = clamped;
     if (this.cachedUsage) {
       const highlight = shouldHighlightWeekly(this.cachedUsage.api, this.weeklyThreshold);
-      this.toggleWeeklyRotation(highlight);
       this.render(this.cachedUsage, highlight);
     }
   }
@@ -58,14 +41,7 @@ export class StatusBarManager {
   update(usage: CombinedUsage): void {
     this.cachedUsage = usage;
     const weeklyHighlight = shouldHighlightWeekly(usage.api, this.weeklyThreshold);
-    if (weeklyHighlight) {
-      this.toggleWeeklyRotation(false);
-      this.render(usage, true);
-      return;
-    }
-
-    this.toggleWeeklyRotation(false);
-    this.render(usage, false);
+    this.render(usage, weeklyHighlight);
   }
 
   showLoading(): void {
@@ -91,18 +67,26 @@ export class StatusBarManager {
   }
 
   showLimitReached(limit: LimitReset): void {
-    this.toggleWeeklyRotation(false);
-
     const timeRemaining = formatTimeRemaining(limit.resetAt);
+    const resetDisplay =
+      limit.kind === 'session' ? timeRemaining : formatResetDay(limit.resetAt);
+
     const label =
       limit.kind === 'session'
         ? '5h limit reached'
-          : limit.kind === 'weeklyAll'
-            ? 'Weekly limit reached'
-            : 'Weekly Sonnet limit reached';
+        : limit.kind === 'weeklyAll'
+          ? 'Weekly limit reached'
+          : 'Weekly Sonnet limit reached';
+
+    const tooltipText =
+      limit.kind === 'session'
+        ? `You hit 100% of your 5-hour window. Resets in ${timeRemaining}.`
+        : limit.kind === 'weeklyAll'
+          ? `You hit 100% of your weekly limit. Resets ${resetDisplay}.`
+          : `You hit 100% of your weekly Sonnet limit. Resets ${resetDisplay}.`;
 
     this.setStatusText(`$(error) ${label} | ${timeRemaining}`);
-    this.statusBarItem.tooltip = 'Limit reached. Polling paused until the window resets.';
+    this.statusBarItem.tooltip = tooltipText;
     this.statusBarItem.color = new vscode.ThemeColor('errorForeground');
   }
 
@@ -142,14 +126,6 @@ export class StatusBarManager {
     }
   }
 
-  private toggleWeeklyRotation(enable: boolean): void {
-    if (this.alternateTimer) {
-      clearInterval(this.alternateTimer);
-      this.alternateTimer = undefined;
-    }
-
-  }
-
   private buildTooltip(usage: CombinedUsage): vscode.MarkdownString {
     const api = usage.api!;
     const local = usage.local;
@@ -164,6 +140,13 @@ export class StatusBarManager {
       }
       hasContent = true;
     };
+
+    appendSeparator();
+    md.appendMarkdown('**Weekly (All Models)**\n\n');
+    md.appendMarkdown(`${Math.round(api.weeklyAll.utilization)}% used\n\n`);
+    if (api.weeklyAll.resetsAt) {
+      md.appendMarkdown(`Resets: ${formatResetDay(api.weeklyAll.resetsAt)}\n\n`);
+    }
 
     if (api.weeklySonnet) {
       appendSeparator();
@@ -229,7 +212,6 @@ export class StatusBarManager {
   }
 
   dispose(): void {
-    this.toggleWeeklyRotation(false);
     this.statusBarItem.dispose();
   }
 

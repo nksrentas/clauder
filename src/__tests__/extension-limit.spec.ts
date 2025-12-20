@@ -73,7 +73,6 @@ vi.mock('vscode', () => {
       getConfiguration: vi.fn(() => ({
         get: vi.fn((key: string, fallback: any) => {
           if (key === 'refreshInterval') return 300;
-          if (key === 'weeklyHighlightInterval') return 0.3;
           if (key === 'weeklyHighlightThreshold') return 80;
           return fallback;
         }),
