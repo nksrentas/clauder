@@ -61,3 +61,32 @@ export function getUsageColor(percentage: number): string | undefined {
 export function capitalize(str: string): string {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
+
+export function formatPredictionTime(ms: number | null): string {
+  if (ms === null) return 'unknown';
+  if (ms <= 0) return 'now';
+
+  const hours = Math.floor(ms / (1000 * 60 * 60));
+  const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
+
+  if (hours > 24) {
+    const days = Math.floor(hours / 24);
+    return `~${days}d ${hours % 24}h`;
+  }
+
+  if (hours > 0) {
+    return minutes > 0 ? `~${hours}h ${minutes}m` : `~${hours}h`;
+  }
+
+  return `~${minutes}m`;
+}
+
+export function formatRate(tokensPerHour: number): string {
+  if (tokensPerHour >= 1_000_000) {
+    return `${(tokensPerHour / 1_000_000).toFixed(1)}M tokens/hr`;
+  }
+  if (tokensPerHour >= 1000) {
+    return `${Math.round(tokensPerHour / 1000)}K tokens/hr`;
+  }
+  return `${tokensPerHour} tokens/hr`;
+}

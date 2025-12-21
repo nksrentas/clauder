@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
 import {
-  capitalize,
+  formatPredictionTime,
   formatResetDay,
   formatTimeRemaining,
   formatTokens,
@@ -9,8 +9,14 @@ import {
 } from '~/formatters';
 import { DEFAULT_WEEKLY_ALERT_THRESHOLD, shouldHighlightWeekly } from '~/limit';
 import type { LimitReset } from '~/limit';
-import type { ModelFamily, UsageSummary } from '~/types';
+import type { UsageSummary } from '~/types';
 import type { UsageData } from '~/usage-api';
+
+const CLAUDE_ORANGE = '#E8956A';
+
+function styledHeading(text: string): string {
+  return `<strong><span style="color:${CLAUDE_ORANGE};">${text}</span></strong>`;
+}
 
 export type CombinedUsage = {
   api: UsageData | null;
@@ -91,11 +97,15 @@ export class StatusBarManager {
   }
 
   private render(usage: CombinedUsage, inlineWeekly: boolean): void {
+    const approachingLimit = this.isApproachingLimit(usage);
+
     if (usage.api) {
       const sessionPercent = Math.round(usage.api.session.utilization);
       const sessionTime = usage.api.session.resetsAt
         ? formatTimeRemaining(usage.api.session.resetsAt)
         : 'N/A';
+
+      const icon = approachingLimit ? '$(warning)' : '$(sparkle)';
 
       if (inlineWeekly) {
         const weeklyPercent = Math.round(usage.api.weeklyAll.utilization);
@@ -103,21 +113,22 @@ export class StatusBarManager {
           ? formatResetDay(usage.api.weeklyAll.resetsAt)
           : 'N/A';
         this.setStatusText(
-          `$(sparkle) ${sessionPercent}% | ${sessionTime} · W ${weeklyPercent}% | ${weeklyTime}`
+          `${icon} ${sessionPercent}% | ${sessionTime} · W ${weeklyPercent}% | ${weeklyTime}`
         );
         this.statusBarItem.color = getUsageColor(sessionPercent);
         this.statusBarItem.tooltip = this.buildTooltip(usage);
         return;
       }
 
-      this.setStatusText(`$(sparkle) ${sessionPercent}% | ${sessionTime}`);
+      this.setStatusText(`${icon} ${sessionPercent}% | ${sessionTime}`);
       this.statusBarItem.color = getUsageColor(sessionPercent);
       this.statusBarItem.tooltip = this.buildTooltip(usage);
     } else if (usage.local) {
       const percent = Math.round(usage.local.windowPercentage);
       const timeRemaining = formatTimeRemaining(usage.local.windowEndTime);
+      const icon = approachingLimit ? '$(warning)' : '$(sparkle)';
 
-      this.setStatusText(`$(sparkle) ~${percent}% | ${timeRemaining}`);
+      this.setStatusText(`${icon} ~${percent}% | ${timeRemaining}`);
       this.statusBarItem.color = getUsageColor(percent);
       this.statusBarItem.tooltip = this.buildLocalTooltip(usage.local);
     } else {
@@ -126,12 +137,24 @@ export class StatusBarManager {
     }
   }
 
+  private isApproachingLimit(usage: CombinedUsage): boolean {
+    const thirtyMinMs = 30 * 60 * 1000;
+    const prediction = usage.local?.prediction;
+    if (!prediction?.canPredict) return false;
+    if (prediction.timeToSessionLimit !== null && prediction.timeToSessionLimit < thirtyMinMs) {
+      return true;
+    }
+    return false;
+  }
+
   private buildTooltip(usage: CombinedUsage): vscode.MarkdownString {
     const api = usage.api!;
     const local = usage.local;
 
     const md = new vscode.MarkdownString();
-    md.appendMarkdown('**Claude Code Usage**\n\n');
+    md.supportHtml = true;
+    md.isTrusted = true;
+    md.appendMarkdown(`${styledHeading('Claude Code Usage')}\n\n`);
 
     let hasContent = false;
     const appendSeparator = () => {
@@ -142,7 +165,7 @@ export class StatusBarManager {
     };
 
     appendSeparator();
-    md.appendMarkdown('**Weekly (All Models)**\n\n');
+    md.appendMarkdown(`${styledHeading('Weekly (All Models)')}\n\n`);
     md.appendMarkdown(`${Math.round(api.weeklyAll.utilization)}% used\n\n`);
     if (api.weeklyAll.resetsAt) {
       md.appendMarkdown(`Resets: ${formatResetDay(api.weeklyAll.resetsAt)}\n\n`);
@@ -150,27 +173,42 @@ export class StatusBarManager {
 
     if (api.weeklySonnet) {
       appendSeparator();
-      md.appendMarkdown('**Weekly (Sonnet only)**\n\n');
+      md.appendMarkdown(`${styledHeading('Weekly (Sonnet only)')}\n\n`);
       md.appendMarkdown(`${Math.round(api.weeklySonnet.utilization)}% used\n\n`);
       if (api.weeklySonnet.resetsAt) {
         md.appendMarkdown(`Resets: ${formatResetDay(api.weeklySonnet.resetsAt)}\n\n`);
       }
     }
 
-    if (local && local.totalCost > 0) {
+    if (local?.projectBreakdown && local.projectBreakdown.projects.length > 0) {
       appendSeparator();
-      md.appendMarkdown('**Model Breakdown (Week, CLI)**\n\n');
-      const models: ModelFamily[] = ['opus', 'sonnet', 'haiku'];
-      for (const model of models) {
-        const data = local.modelBreakdown[model];
-        if (data.requests > 0) {
-          const totalTokens = data.inputTokens + data.outputTokens;
-          md.appendMarkdown(
-            `${capitalize(model)}: ${formatTokens(totalTokens)} - $${data.cost.toFixed(2)}\n\n`
-          );
-        }
+      md.appendMarkdown(`${styledHeading('Usage by Project (Week)')}\n\n`);
+      const maxDisplay = 5;
+      const projects = local.projectBreakdown.projects;
+      for (let i = 0; i < Math.min(maxDisplay, projects.length); i++) {
+        const project = projects[i];
+        md.appendMarkdown(
+          `${project.projectName}: ${formatTokens(project.totalTokens)} (${Math.round(project.percentage)}%) - $${project.cost.toFixed(2)}\n\n`
+        );
       }
-      md.appendMarkdown(`**Est. Cost:** $${local.totalCost.toFixed(2)}\n\n`);
+      if (projects.length > maxDisplay) {
+        md.appendMarkdown(`_+ ${projects.length - maxDisplay} more projects_\n\n`);
+      }
+    }
+
+    if (local?.prediction?.canPredict) {
+      appendSeparator();
+      md.appendMarkdown(`${styledHeading('Predictions')}\n\n`);
+      if (local.prediction.timeToSessionLimit !== null) {
+        md.appendMarkdown(
+          `Session limit in ${formatPredictionTime(local.prediction.timeToSessionLimit)}\n\n`
+        );
+      }
+      if (local.prediction.timeToWeeklyLimit !== null) {
+        md.appendMarkdown(
+          `Weekly limit in ${formatPredictionTime(local.prediction.timeToWeeklyLimit)}\n\n`
+        );
+      }
     }
 
     if (!hasContent) {
@@ -186,23 +224,51 @@ export class StatusBarManager {
 
   private buildLocalTooltip(usage: UsageSummary): vscode.MarkdownString {
     const md = new vscode.MarkdownString();
-    md.appendMarkdown('**Claude Code Usage (Estimate)**\n\n');
+    md.supportHtml = true;
+    md.isTrusted = true;
+    md.appendMarkdown(`${styledHeading('Claude Code Usage (Estimate)')}\n\n`);
     md.appendMarkdown('_API unavailable, showing local data_\n\n');
 
     md.appendMarkdown('---\n\n');
 
-    md.appendMarkdown('**Current Session**\n\n');
+    md.appendMarkdown(`${styledHeading('Current Session')}\n\n`);
     md.appendMarkdown(`~${Math.round(usage.windowPercentage)}% used\n\n`);
     md.appendMarkdown(`Resets in: ${formatTimeRemaining(usage.windowEndTime)}\n\n`);
 
     md.appendMarkdown('---\n\n');
 
-    md.appendMarkdown('**Weekly (CLI only)**\n\n');
+    md.appendMarkdown(`${styledHeading('Weekly (CLI only)')}\n\n`);
     md.appendMarkdown(`~${Math.round(usage.weeklyPercentage)}% used\n\n`);
 
-    if (usage.totalCost > 0) {
+    if (usage.projectBreakdown && usage.projectBreakdown.projects.length > 0) {
       md.appendMarkdown('---\n\n');
-      md.appendMarkdown(`**Est. Cost:** $${usage.totalCost.toFixed(2)}\n\n`);
+      md.appendMarkdown(`${styledHeading('Usage by Project (Week)')}\n\n`);
+      const maxDisplay = 5;
+      const projects = usage.projectBreakdown.projects;
+      for (let i = 0; i < Math.min(maxDisplay, projects.length); i++) {
+        const project = projects[i];
+        md.appendMarkdown(
+          `${project.projectName}: ${formatTokens(project.totalTokens)} (${Math.round(project.percentage)}%) - $${project.cost.toFixed(2)}\n\n`
+        );
+      }
+      if (projects.length > maxDisplay) {
+        md.appendMarkdown(`_+ ${projects.length - maxDisplay} more projects_\n\n`);
+      }
+    }
+
+    if (usage.prediction?.canPredict) {
+      md.appendMarkdown('---\n\n');
+      md.appendMarkdown(`${styledHeading('Predictions')}\n\n`);
+      if (usage.prediction.timeToSessionLimit !== null) {
+        md.appendMarkdown(
+          `Session limit in ${formatPredictionTime(usage.prediction.timeToSessionLimit)}\n\n`
+        );
+      }
+      if (usage.prediction.timeToWeeklyLimit !== null) {
+        md.appendMarkdown(
+          `Weekly limit in ${formatPredictionTime(usage.prediction.timeToWeeklyLimit)}\n\n`
+        );
+      }
     }
 
     md.appendMarkdown('---\n\n');

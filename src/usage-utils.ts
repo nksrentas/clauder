@@ -35,3 +35,13 @@ export function calculateCost(
 ): number {
   return (inputTokens / 1_000_000) * inputPerMTok + (outputTokens / 1_000_000) * outputPerMTok;
 }
+
+export function getRemainingTokens(currentPercent: number, limitTokens: number): number {
+  const remainingPercent = Math.max(0, 100 - currentPercent);
+  return (remainingPercent / 100) * limitTokens;
+}
+
+export function estimateTimeToLimit(remainingTokens: number, tokensPerHour: number): number | null {
+  if (tokensPerHour <= 0) return null;
+  return (remainingTokens / tokensPerHour) * 60 * 60 * 1000;
+}

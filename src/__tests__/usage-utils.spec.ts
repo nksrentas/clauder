@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import type { SessionEntry } from '~/types';
-import { calculateCost, getEntryTokens, getModelFamily, getWeekBoundaries } from '~/usage-utils';
+import {
+  calculateCost,
+  estimateTimeToLimit,
+  getEntryTokens,
+  getModelFamily,
+  getRemainingTokens,
+  getWeekBoundaries,
+} from '~/usage-utils';
 
 describe('getModelFamily', () => {
   it('returns opus for opus models', () => {
@@ -135,5 +142,51 @@ describe('calculateCost', () => {
   it('calculates fractional costs', () => {
     const cost = calculateCost(500_000, 250_000, 3, 15);
     expect(cost).toBeCloseTo(5.25, 2);
+  });
+});
+
+describe('getRemainingTokens', () => {
+  it('calculates remaining tokens correctly', () => {
+    expect(getRemainingTokens(60, 500_000)).toBe(200_000);
+  });
+
+  it('returns full limit when at 0%', () => {
+    expect(getRemainingTokens(0, 500_000)).toBe(500_000);
+  });
+
+  it('returns 0 when at 100%', () => {
+    expect(getRemainingTokens(100, 500_000)).toBe(0);
+  });
+
+  it('returns 0 when over 100%', () => {
+    expect(getRemainingTokens(105, 500_000)).toBe(0);
+  });
+
+  it('handles decimal percentages', () => {
+    expect(getRemainingTokens(50.5, 1_000_000)).toBe(495_000);
+  });
+});
+
+describe('estimateTimeToLimit', () => {
+  it('calculates time in milliseconds', () => {
+    const result = estimateTimeToLimit(100_000, 50_000);
+    expect(result).toBe(2 * 60 * 60 * 1000);
+  });
+
+  it('returns null when rate is zero', () => {
+    expect(estimateTimeToLimit(100_000, 0)).toBeNull();
+  });
+
+  it('returns null when rate is negative', () => {
+    expect(estimateTimeToLimit(100_000, -1)).toBeNull();
+  });
+
+  it('handles zero remaining tokens', () => {
+    expect(estimateTimeToLimit(0, 50_000)).toBe(0);
+  });
+
+  it('calculates fractional hours', () => {
+    const result = estimateTimeToLimit(25_000, 50_000);
+    expect(result).toBe(30 * 60 * 1000);
   });
 });

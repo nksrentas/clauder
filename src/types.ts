@@ -50,6 +50,9 @@ export interface UsageSummary {
   plan: PlanType;
   modelBreakdown: Record<ModelFamily, ModelUsage>;
   totalCost: number;
+  projectBreakdown?: ProjectBreakdown;
+  usageRate?: UsageRate;
+  prediction?: LimitPrediction;
 }
 
 export interface PlanLimits {
@@ -74,3 +77,39 @@ export const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
 
 export const WINDOW_DURATION_MS = 5 * 60 * 60 * 1000;
 export const TOKENS_PER_HOUR_ESTIMATE = 50000;
+
+export type SessionEntryWithCwd = SessionEntry & {
+  cwd?: string;
+};
+
+export type ProjectUsage = {
+  projectPath: string;
+  projectName: string;
+  totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  requests: number;
+  cost: number;
+  percentage: number;
+};
+
+export type ProjectBreakdown = {
+  projects: ProjectUsage[];
+  totalTokens: number;
+  totalCost: number;
+};
+
+export type UsageRate = {
+  tokensPerHour: number;
+  sampleWindowMs: number;
+  sampleTokens: number;
+};
+
+export type LimitPrediction = {
+  sessionLimitAt: Date | null;
+  weeklyLimitAt: Date | null;
+  timeToSessionLimit: number | null;
+  timeToWeeklyLimit: number | null;
+  canPredict: boolean;
+  reason?: 'no_recent_usage' | 'already_at_limit';
+};

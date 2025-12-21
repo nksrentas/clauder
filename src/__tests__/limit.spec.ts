@@ -8,6 +8,7 @@ import {
   shouldRemainPaused,
 } from '~/limit';
 import { StatusBarManager } from '~/status-bar';
+import type { UsageSummary } from '~/types';
 
 vi.mock('vscode', () => {
   const items: any[] = [];
@@ -189,7 +190,7 @@ describe('StatusBarManager local usage display', () => {
         sonnet: { requests: 10, inputTokens: 50000, outputTokens: 25000, cost: 5.25 },
         haiku: { requests: 0, inputTokens: 0, outputTokens: 0, cost: 0 },
       },
-    };
+    } as UsageSummary;
 
     manager.update({ api: null, local: localUsage });
 
@@ -198,7 +199,6 @@ describe('StatusBarManager local usage display', () => {
     expect(bar.tooltip.value).toContain('Claude Code Usage (Estimate)');
     expect(bar.tooltip.value).toContain('~45% used');
     expect(bar.tooltip.value).toContain('~30% used');
-    expect(bar.tooltip.value).toContain('$5.25');
     manager.dispose();
   });
 
@@ -214,7 +214,7 @@ describe('StatusBarManager local usage display', () => {
         sonnet: { requests: 0, inputTokens: 0, outputTokens: 0, cost: 0 },
         haiku: { requests: 0, inputTokens: 0, outputTokens: 0, cost: 0 },
       },
-    };
+    } as UsageSummary;
 
     manager.update({ api: null, local: localUsage });
 
