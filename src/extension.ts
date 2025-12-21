@@ -73,7 +73,7 @@ async function updateStatusBar(): Promise<void> {
     let localData = null;
     try {
       const config = vscode.workspace.getConfiguration('clauder');
-      const plan = config.get<PlanType>('plan', 'max5');
+      const plan = config.get<PlanType>('plan', 'pro');
       const weeklyThreshold = config.get<number>('weeklyHighlightThreshold', 90);
       statusBarManager.setWeeklyThreshold(weeklyThreshold);
       localData = await usageTracker.calculateUsage(plan);
