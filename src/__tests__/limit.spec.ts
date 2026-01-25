@@ -118,7 +118,8 @@ describe('StatusBarManager limit display', () => {
 
     const bar = (manager as any).statusBarItem;
     expect(bar.text.toLowerCase()).toContain('limit reached');
-    expect(bar.text).toMatch(/\d+m/);
+    expect(bar.text).toContain('resets in');
+    expect(bar.text).toMatch(/resets in (\d+h )?\d+m/);
     expect(bar.tooltip).toContain('You hit 100% of your 5-hour window');
     expect(bar.color).toBeInstanceOf((await import('vscode')).ThemeColor);
     manager.dispose();
@@ -132,6 +133,7 @@ describe('StatusBarManager limit display', () => {
 
     const bar = (manager as any).statusBarItem;
     expect(bar.text.toLowerCase()).toContain('weekly limit reached');
+    expect(bar.text).toContain('resets in');
     expect(bar.tooltip).toContain('You hit 100% of your weekly limit');
     expect(bar.color).toBeInstanceOf((await import('vscode')).ThemeColor);
     manager.dispose();
@@ -145,6 +147,7 @@ describe('StatusBarManager limit display', () => {
 
     const bar = (manager as any).statusBarItem;
     expect(bar.text.toLowerCase()).toContain('weekly sonnet limit reached');
+    expect(bar.text).toContain('resets in');
     expect(bar.tooltip).toContain('You hit 100% of your weekly Sonnet limit');
     expect(bar.color).toBeInstanceOf((await import('vscode')).ThemeColor);
     manager.dispose();

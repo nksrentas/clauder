@@ -90,7 +90,7 @@ export class StatusBarManager {
           ? `You hit 100% of your weekly limit. Resets ${resetDisplay}.`
           : `You hit 100% of your weekly Sonnet limit. Resets ${resetDisplay}.`;
 
-    this.setStatusText(`$(error) ${label} | ${timeRemaining}`);
+    this.setStatusText(`$(error) ${label} | resets in ${timeRemaining}`);
     this.statusBarItem.tooltip = tooltipText;
     this.statusBarItem.color = new vscode.ThemeColor('errorForeground');
   }

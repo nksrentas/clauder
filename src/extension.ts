@@ -14,6 +14,7 @@ let usageTracker: UsageTracker;
 let refreshInterval: NodeJS.Timeout | undefined;
 let limitReset: LimitReset | null = null;
 let limitResumeTimeout: NodeJS.Timeout | undefined;
+let countdownInterval: NodeJS.Timeout | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
   statusBarManager = new StatusBarManager();
@@ -136,14 +137,31 @@ function stopRefreshInterval(): void {
   }
 }
 
+function startCountdownInterval(): void {
+  stopCountdownInterval();
+  countdownInterval = setInterval(() => {
+    if (limitReset) {
+      statusBarManager.showLimitReached(limitReset);
+    }
+  }, 60_000);
+}
+
+function stopCountdownInterval(): void {
+  if (countdownInterval) {
+    clearInterval(countdownInterval);
+    countdownInterval = undefined;
+  }
+}
+
 export function deactivate() {
   clearLimitPause();
   stopRefreshInterval();
-  clearLimitResumeTimeout();
+  stopCountdownInterval();
 }
 
 function scheduleLimitResume(limit: LimitReset): void {
   clearLimitResumeTimeout();
+  startCountdownInterval();
 
   const delay = computeResumeDelay(limit);
   if (delay <= 0) {
@@ -170,4 +188,5 @@ function clearLimitResumeTimeout(): void {
 function clearLimitPause(): void {
   limitReset = null;
   clearLimitResumeTimeout();
+  stopCountdownInterval();
 }

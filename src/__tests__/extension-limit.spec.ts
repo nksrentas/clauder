@@ -124,6 +124,7 @@ describe('extension limit pause/resume integration', () => {
     const vscode = await import('vscode');
     const bar = (vscode as any).__items[0];
     expect(bar.text.toLowerCase()).toContain('limit reached');
+    expect(bar.text).toContain('resets in');
 
     await vi.advanceTimersByTimeAsync(59_000);
     expect(fetchUsage).toHaveBeenCalledTimes(1);
@@ -159,6 +160,7 @@ describe('extension limit pause/resume integration', () => {
     const vscode = await import('vscode');
     const bar = (vscode as any).__items[0];
     expect(bar.text.toLowerCase()).toContain('weekly limit reached');
+    expect(bar.text).toContain('resets in');
     expect(fetchUsage).toHaveBeenCalledTimes(1);
 
     await vi.advanceTimersByTimeAsync(46_000);
@@ -189,6 +191,34 @@ describe('extension limit pause/resume integration', () => {
     expect(fetchUsage).toHaveBeenCalledTimes(1);
     const bar = (vscode as any).__items[0];
     expect(bar.text.toLowerCase()).toContain('limit reached');
+    expect(bar.text).toContain('resets in');
+
+    vi.useRealTimers();
+  });
+
+  it('updates countdown display every minute while at limit', async () => {
+    const resetAt = new Date(Date.now() + 3 * 60 * 1000);
+    const limitUsage = {
+      session: { utilization: 100, resetsAt: resetAt },
+      weeklyAll: { utilization: 25, resetsAt: null },
+      weeklySonnet: null,
+    };
+
+    fetchUsage.mockResolvedValue({ status: 'success', data: limitUsage });
+
+    const context = { subscriptions: [] } as any;
+    await activate(context);
+
+    const vscode = await import('vscode');
+    const bar = (vscode as any).__items[0];
+
+    expect(bar.text).toContain('resets in');
+    expect(bar.text).toMatch(/3m|2m/);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(bar.text).toMatch(/2m|1m/);
+
+    expect(fetchUsage).toHaveBeenCalledTimes(1);
 
     vi.useRealTimers();
   });
