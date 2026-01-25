@@ -66,26 +66,46 @@ export class UsageApiClient {
 
   private getOAuthToken(): Promise<string | null> {
     return new Promise((resolve) => {
-      exec(
-        `security find-generic-password -s "${UsageApiClient.KEYCHAIN_SERVICE}" -w`,
-        (error, stdout) => {
-          if (error) {
-            console.log('[Clauder] Keychain access failed:', error.message);
-            resolve(null);
-            return;
-          }
+      const command = this.getKeychainCommand();
+      if (!command) {
+        console.log('[Clauder] Unsupported platform:', process.platform);
+        resolve(null);
+        return;
+      }
 
-          try {
-            const creds = JSON.parse(stdout.trim());
-            const token = creds?.claudeAiOauth?.accessToken;
-            resolve(token || null);
-          } catch {
-            console.log('[Clauder] Failed to parse credentials');
-            resolve(null);
-          }
+      exec(command, (error, stdout) => {
+        if (error) {
+          console.log('[Clauder] Keychain access failed:', error.message);
+          resolve(null);
+          return;
         }
-      );
+
+        try {
+          const creds = JSON.parse(stdout.trim());
+          const token = creds?.claudeAiOauth?.accessToken;
+          resolve(token || null);
+        } catch {
+          console.log('[Clauder] Failed to parse credentials');
+          resolve(null);
+        }
+      });
     });
+  }
+
+  private getKeychainCommand(): string | null {
+    const service = UsageApiClient.KEYCHAIN_SERVICE;
+
+    switch (process.platform) {
+      case 'darwin':
+        return `security find-generic-password -s "${service}" -w`;
+      case 'win32':
+        // PowerShell command to read from Windows Credential Manager using CredRead API
+        return `powershell -Command "$cred = Get-StoredCredential -Target '${service}' -AsCredentialObject; if ($cred) { $cred.Password } else { exit 1 }"`;
+      case 'linux':
+        return `secret-tool lookup service "${service}"`;
+      default:
+        return null;
+    }
   }
 
   private callApi(token: string): Promise<OAuthUsageResponse> {
