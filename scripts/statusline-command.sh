@@ -1,24 +1,32 @@
 #!/bin/bash
-# statusline-command.sh - Claude Code statusline for shell prompt
-# Shows git branch/status and Claude usage bar
+# statusline-command.sh - Claude Code statusline
+# Reads JSON context from stdin (per official docs) and shows usage info
+# See: https://code.claude.com/docs/en/statusline
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CACHE_FILE="$HOME/.claude/usage-cache.json"
 CACHE_TTL=30  # seconds
 
-# Claude brand colors (warm orange gradient matching VS Code extension)
-ORANGE='\033[38;5;209m'    # Brand orange for diamond icon
-TAN='\033[38;5;180m'       # Healthy (<40%)
-LIGHT_ORANGE='\033[38;5;216m'  # Low-mid (40-59%)
-BRAND_ORANGE='\033[38;5;209m'  # Mid (60-79%)
-RED_ORANGE='\033[38;5;173m'    # High (80-89%)
-DARK_RED='\033[38;5;167m'      # Critical (>=90%)
+# Claude brand colors (warm orange gradient)
+ORANGE='\033[38;5;209m'
+TAN='\033[38;5;180m'
+LIGHT_ORANGE='\033[38;5;216m'
+BRAND_ORANGE='\033[38;5;209m'
+RED_ORANGE='\033[38;5;173m'
+DARK_RED='\033[38;5;167m'
 GRAY='\033[38;5;245m'
 RESET='\033[0m'
-BOLD='\033[1m'
 DIM='\033[2m'
 
-# Get usage color based on percentage (matches VS Code extension gradient)
+# Read JSON input from stdin (official API)
+INPUT=$(cat)
+
+# Helper: extract value from stdin JSON
+get_input() {
+  echo "$INPUT" | jq -r "$1" 2>/dev/null
+}
+
+# Get usage color based on percentage
 get_color() {
   local pct="$1"
   if (( pct < 40 )); then
@@ -34,7 +42,7 @@ get_color() {
   fi
 }
 
-# Format time remaining (uses Python for reliable ISO 8601 parsing with timezone)
+# Format time remaining
 format_time() {
   local reset_at="$1"
   if [[ -z "$reset_at" || "$reset_at" == "null" ]]; then
@@ -48,12 +56,10 @@ import sys
 
 try:
     reset_str = sys.argv[1]
-    # Parse ISO 8601 with timezone
     if '+' in reset_str or reset_str.endswith('Z'):
         reset_str = reset_str.replace('Z', '+00:00')
         reset_dt = datetime.fromisoformat(reset_str)
     else:
-        # Assume UTC if no timezone
         reset_dt = datetime.fromisoformat(reset_str).replace(tzinfo=timezone.utc)
 
     now = datetime.now(timezone.utc)
@@ -68,6 +74,36 @@ try:
             print(f'{hours}h{mins}m')
         else:
             print(f'{mins}m')
+except Exception:
+    print('N/A')
+" "$reset_at" 2>/dev/null || echo "N/A"
+}
+
+# Format weekly reset as day/time (e.g., "Sat 2:00PM")
+format_reset_day() {
+  local reset_at="$1"
+  if [[ -z "$reset_at" || "$reset_at" == "null" ]]; then
+    echo "N/A"
+    return
+  fi
+
+  python3 -c "
+from datetime import datetime, timezone
+import sys
+
+try:
+    reset_str = sys.argv[1]
+    if '+' in reset_str or reset_str.endswith('Z'):
+        reset_str = reset_str.replace('Z', '+00:00')
+        reset_dt = datetime.fromisoformat(reset_str)
+    else:
+        reset_dt = datetime.fromisoformat(reset_str).replace(tzinfo=timezone.utc)
+
+    # Convert to local time
+    local_dt = reset_dt.astimezone()
+
+    # Format as 'Sat 2:00PM'
+    print(local_dt.strftime('%a %-I:%M%p').replace('AM', 'am').replace('PM', 'pm'))
 except Exception:
     print('N/A')
 " "$reset_at" 2>/dev/null || echo "N/A"
@@ -93,8 +129,8 @@ build_bar() {
   echo -e "${color}${bar}${RESET}"
 }
 
-# Get cached usage or fetch fresh
-get_usage() {
+# Get rate limit usage (fetched from API, cached)
+get_rate_limit_usage() {
   local now
   now=$(date +%s)
 
@@ -108,14 +144,14 @@ get_usage() {
     fi
   fi
 
-  # Fetch fresh data (in background to not block prompt)
+  # Fetch fresh data in background
   if [[ -x "$SCRIPT_DIR/fetch-usage.sh" ]]; then
     "$SCRIPT_DIR/fetch-usage.sh" > "$CACHE_FILE" 2>/dev/null &
   elif [[ -x "$HOME/.claude/scripts/fetch-usage.sh" ]]; then
     "$HOME/.claude/scripts/fetch-usage.sh" > "$CACHE_FILE" 2>/dev/null &
   fi
 
-  # Return cached if exists, otherwise empty
+  # Return cached if exists
   if [[ -f "$CACHE_FILE" ]]; then
     cat "$CACHE_FILE"
   else
@@ -123,56 +159,79 @@ get_usage() {
   fi
 }
 
-# Get git info
-get_git_info() {
-  if ! git rev-parse --is-inside-work-tree &>/dev/null; then
-    return
+# Get git branch
+get_git_branch() {
+  if git rev-parse --git-dir > /dev/null 2>&1; then
+    local branch
+    branch=$(git branch --show-current 2>/dev/null)
+    if [[ -n "$branch" ]]; then
+      local dirty=""
+      if [[ -n $(git status --porcelain 2>/dev/null) ]]; then
+        dirty="*"
+      fi
+      echo -e "${DIM}${branch}${dirty}${RESET}"
+    fi
   fi
-
-  local branch
-  branch=$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse --short HEAD 2>/dev/null)
-
-  local dirty=""
-  if [[ -n $(git status --porcelain 2>/dev/null) ]]; then
-    dirty="*"
-  fi
-
-  echo -e "${DIM}${branch}${dirty}${RESET}"
 }
 
-# Main statusline
+# Main
 main() {
   local parts=()
 
-  # Git info
-  local git_info
-  git_info=$(get_git_info)
-  if [[ -n "$git_info" ]]; then
-    parts+=("$git_info")
+  # Model name from stdin JSON
+  local model
+  model=$(get_input '.model.display_name')
+  if [[ -n "$model" && "$model" != "null" ]]; then
+    parts+=("${ORANGE}◆${RESET} ${DIM}${model}${RESET}")
   fi
 
-  # Usage info
+  # Git branch
+  local git_branch
+  git_branch=$(get_git_branch)
+  if [[ -n "$git_branch" ]]; then
+    parts+=("$git_branch")
+  fi
+
+  # Context window usage from stdin JSON
+  local ctx_pct
+  ctx_pct=$(get_input '.context_window.used_percentage // 0' | cut -d. -f1)
+  if [[ -n "$ctx_pct" && "$ctx_pct" != "null" && "$ctx_pct" -gt 0 ]]; then
+    local ctx_color
+    ctx_color=$(get_color "$ctx_pct")
+    parts+=("${DIM}ctx:${RESET}${ctx_color}${ctx_pct}%${RESET}")
+  fi
+
+  # Rate limit usage (from API cache)
   local usage
-  usage=$(get_usage)
+  usage=$(get_rate_limit_usage)
 
   if [[ -n "$usage" && "$usage" != "{}" ]]; then
-    local five_hour seven_day five_hour_resets
-    five_hour=$(echo "$usage" | python3 -c "import sys,json; d=json.load(sys.stdin); print(int(d.get('five_hour', 0)))" 2>/dev/null || echo "0")
-    seven_day=$(echo "$usage" | python3 -c "import sys,json; d=json.load(sys.stdin); print(int(d.get('seven_day', 0)))" 2>/dev/null || echo "0")
-    five_hour_resets=$(echo "$usage" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('five_hour_resets_at', ''))" 2>/dev/null || echo "")
+    # 5-hour limit with countdown
+    local five_hour five_hour_resets
+    five_hour=$(echo "$usage" | jq -r '.five_hour // 0' 2>/dev/null | cut -d. -f1)
+    five_hour_resets=$(echo "$usage" | jq -r '.five_hour_resets_at // empty' 2>/dev/null)
 
-    local bar time_left color
-    bar=$(build_bar "$five_hour")
-    time_left=$(format_time "$five_hour_resets")
-    color=$(get_color "$five_hour")
+    if [[ -n "$five_hour" && "$five_hour" != "null" ]]; then
+      local bar time_left color
+      bar=$(build_bar "$five_hour")
+      time_left=$(format_time "$five_hour_resets")
+      color=$(get_color "$five_hour")
 
-    parts+=("${ORANGE}◆${RESET} ${color}${five_hour}%${RESET} ${bar} ${DIM}${time_left}${RESET}")
+      parts+=("${color}${five_hour}%${RESET} ${bar} ${DIM}${time_left}${RESET}")
+    fi
 
-    # Show weekly if high
-    if (( seven_day >= 80 )); then
-      local weekly_color
+    # Weekly limit with day/time reset (always shown)
+    local seven_day seven_day_resets
+    seven_day=$(echo "$usage" | jq -r '.seven_day // 0' 2>/dev/null | cut -d. -f1)
+    seven_day_resets=$(echo "$usage" | jq -r '.seven_day_resets_at // empty' 2>/dev/null)
+
+    if [[ -n "$seven_day" && "$seven_day" != "null" ]]; then
+      local weekly_bar weekly_reset weekly_color
+      weekly_bar=$(build_bar "$seven_day")
+      weekly_reset=$(format_reset_day "$seven_day_resets")
       weekly_color=$(get_color "$seven_day")
-      parts+=("${DIM}W:${RESET}${weekly_color}${seven_day}%${RESET}")
+
+      parts+=("${DIM}W:${RESET}${weekly_color}${seven_day}%${RESET} ${weekly_bar} ${DIM}${weekly_reset}${RESET}")
     fi
   fi
 
@@ -188,4 +247,4 @@ main() {
   echo -e "$output"
 }
 
-main "$@"
+main
