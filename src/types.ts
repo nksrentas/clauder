@@ -1,5 +1,7 @@
 export type PlanType = 'pro' | 'max5' | 'max20';
 
+export type StatusDisplayType = 'both' | 'vscode' | 'shell';
+
 export interface UsageData {
   input_tokens: number;
   output_tokens: number;

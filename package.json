@@ -42,6 +42,10 @@
       {
         "command": "clauder.refresh",
         "title": "Clauder: Refresh"
+      },
+      {
+        "command": "clauder.installShellIntegration",
+        "title": "Clauder: Install Shell Integration"
       }
     ],
     "configuration": {
@@ -75,6 +79,21 @@
           "minimum": 50,
           "maximum": 100,
           "description": "Weekly utilization percentage to start showing weekly usage alongside session"
+        },
+        "clauder.statusDisplay": {
+          "type": "string",
+          "default": "both",
+          "enum": [
+            "both",
+            "vscode",
+            "shell"
+          ],
+          "enumDescriptions": [
+            "Show usage in both VS Code status bar and shell",
+            "Show usage in VS Code status bar only",
+            "Show usage in shell statusline only"
+          ],
+          "description": "Where to display Claude usage status"
         }
       }
     }

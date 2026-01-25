@@ -43,6 +43,14 @@ export class StatusBarManager {
     }
   }
 
+  setVisible(visible: boolean): void {
+    if (visible) {
+      this.statusBarItem.show();
+    } else {
+      this.statusBarItem.hide();
+    }
+  }
+
   update(usage: CombinedUsage): void {
     this.cachedUsage = usage;
     const weeklyHighlight = shouldHighlightWeekly(usage.api, this.weeklyThreshold);

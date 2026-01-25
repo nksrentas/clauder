@@ -58,6 +58,7 @@ vi.mock('vscode', () => {
           color: undefined as any,
           command: undefined as any,
           show: vi.fn(),
+          hide: vi.fn(),
           dispose: vi.fn(),
         };
         items.push(item);
@@ -117,7 +118,13 @@ describe('extension limit pause/resume integration', () => {
       .mockResolvedValueOnce({ status: 'success', data: limitUsage })
       .mockResolvedValueOnce({ status: 'success', data: normalUsage });
 
-    const context = { subscriptions: [] } as any;
+    const context = {
+      subscriptions: [],
+      globalState: {
+        get: vi.fn().mockReturnValue(true),
+        update: vi.fn().mockResolvedValue(undefined),
+      },
+    } as any;
     await activate(context);
 
     expect(fetchUsage).toHaveBeenCalledTimes(1);
@@ -154,7 +161,13 @@ describe('extension limit pause/resume integration', () => {
       .mockResolvedValueOnce({ status: 'success', data: limitUsage })
       .mockResolvedValueOnce({ status: 'success', data: normalUsage });
 
-    const context = { subscriptions: [] } as any;
+    const context = {
+      subscriptions: [],
+      globalState: {
+        get: vi.fn().mockReturnValue(true),
+        update: vi.fn().mockResolvedValue(undefined),
+      },
+    } as any;
     await activate(context);
 
     const vscode = await import('vscode');
@@ -180,7 +193,13 @@ describe('extension limit pause/resume integration', () => {
 
     fetchUsage.mockResolvedValue({ status: 'success', data: limitUsage });
 
-    const context = { subscriptions: [] } as any;
+    const context = {
+      subscriptions: [],
+      globalState: {
+        get: vi.fn().mockReturnValue(true),
+        update: vi.fn().mockResolvedValue(undefined),
+      },
+    } as any;
     await activate(context);
 
     expect(fetchUsage).toHaveBeenCalledTimes(1);
@@ -206,7 +225,13 @@ describe('extension limit pause/resume integration', () => {
 
     fetchUsage.mockResolvedValue({ status: 'success', data: limitUsage });
 
-    const context = { subscriptions: [] } as any;
+    const context = {
+      subscriptions: [],
+      globalState: {
+        get: vi.fn().mockReturnValue(true),
+        update: vi.fn().mockResolvedValue(undefined),
+      },
+    } as any;
     await activate(context);
 
     const vscode = await import('vscode');

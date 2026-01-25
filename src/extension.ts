@@ -4,9 +4,12 @@ import type { CombinedUsage } from '~/status-bar';
 import { StatusBarManager } from '~/status-bar';
 import { computeResumeDelay, getLimitReset, shouldRemainPaused } from '~/limit';
 import type { LimitReset } from '~/limit';
-import type { PlanType } from '~/types';
+import type { PlanType, StatusDisplayType } from '~/types';
 import { UsageApiClient } from '~/usage-api';
 import { UsageTracker } from '~/usage-tracker';
+
+const SHELL_INTEGRATION_PROMPTED_KEY = 'shellIntegrationPrompted';
+const INSTALL_URL = 'https://hellobussin.com/clauder/install.sh';
 
 let statusBarManager: StatusBarManager;
 let usageApiClient: UsageApiClient;
@@ -15,8 +18,10 @@ let refreshInterval: NodeJS.Timeout | undefined;
 let limitReset: LimitReset | null = null;
 let limitResumeTimeout: NodeJS.Timeout | undefined;
 let countdownInterval: NodeJS.Timeout | undefined;
+let extensionContext: vscode.ExtensionContext;
 
 export function activate(context: vscode.ExtensionContext) {
+  extensionContext = context;
   statusBarManager = new StatusBarManager();
   usageApiClient = new UsageApiClient();
   usageTracker = new UsageTracker();
@@ -25,7 +30,12 @@ export function activate(context: vscode.ExtensionContext) {
     updateStatusBar()
   );
 
-  context.subscriptions.push(refreshCommand, {
+  const installShellCommand = vscode.commands.registerCommand(
+    'clauder.installShellIntegration',
+    () => installShellIntegration()
+  );
+
+  context.subscriptions.push(refreshCommand, installShellCommand, {
     dispose: () => {
       statusBarManager.dispose();
       stopRefreshInterval();
@@ -35,13 +45,16 @@ export function activate(context: vscode.ExtensionContext) {
   const configListener = vscode.workspace.onDidChangeConfiguration((e) => {
     if (e.affectsConfiguration('clauder')) {
       setupRefreshInterval();
+      updateStatusDisplay();
       updateStatusBar();
     }
   });
   context.subscriptions.push(configListener);
 
+  updateStatusDisplay();
   setupRefreshInterval();
   updateStatusBar();
+  promptShellIntegration(context);
 }
 
 async function updateStatusBar(): Promise<void> {
@@ -150,6 +163,41 @@ function stopCountdownInterval(): void {
   if (countdownInterval) {
     clearInterval(countdownInterval);
     countdownInterval = undefined;
+  }
+}
+
+function updateStatusDisplay(): void {
+  const config = vscode.workspace.getConfiguration('clauder');
+  const statusDisplay = config.get<StatusDisplayType>('statusDisplay', 'both');
+  statusBarManager.setVisible(statusDisplay !== 'shell');
+}
+
+async function installShellIntegration(): Promise<void> {
+  const terminal = vscode.window.createTerminal('Claude Shell Integration');
+  terminal.show();
+  terminal.sendText(`curl -fsSL ${INSTALL_URL} | bash`);
+
+  vscode.window.showInformationMessage(
+    'Shell integration installer started. Follow the instructions in the terminal.'
+  );
+}
+
+async function promptShellIntegration(context: vscode.ExtensionContext): Promise<void> {
+  const alreadyPrompted = context.globalState.get<boolean>(SHELL_INTEGRATION_PROMPTED_KEY);
+  if (alreadyPrompted) {
+    return;
+  }
+
+  const action = await vscode.window.showInformationMessage(
+    'Enhance your terminal with Claude usage stats.',
+    'Install Shell Integration',
+    "Don't Show Again"
+  );
+
+  await context.globalState.update(SHELL_INTEGRATION_PROMPTED_KEY, true);
+
+  if (action === 'Install Shell Integration') {
+    await installShellIntegration();
   }
 }
 
