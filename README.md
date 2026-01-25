@@ -5,11 +5,63 @@
 [![Open VSX](https://img.shields.io/open-vsx/dt/nrentas/clauder)](https://open-vsx.org/extension/nrentas/clauder)
 [![codecov](https://codecov.io/gh/nksrentas/clauder/graph/badge.svg)](https://codecov.io/gh/nksrentas/clauder)
 
+Tools for monitoring your Claude Code usage: shell scripts for Claude Code's built-in statusline and a VS Code extension for status bar integration.
+
+## Statusline Scripts
+
+Enhance Claude Code's native statusline with rate limit tracking, git status, and more.
+
+![Statusline](images/status-line.png)
+
+### Features
+
+- Model name with Claude diamond icon
+- Git branch with dirty indicator
+- Context window usage percentage
+- 5-hour rate limit with progress bar and countdown
+- Weekly rate limit with progress bar and reset day/time
+
+### Installation
+
+```bash
+curl -fsSL https://hellobussin.com/clauder/install.sh | bash
+```
+
+### Configuration
+
+Add to `~/.claude/settings.json`:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/scripts/statusline-command.sh",
+    "padding": 0
+  }
+}
+```
+
+### Output Format
+
+```
+◆ Opus 4.5 │ main* │ ctx:10% │ 30% ████████░░ 2h31m │ W:15% ████░░░░░░ Sat 2pm
+```
+
+| Element | Description |
+|---------|-------------|
+| `◆ Opus 4.5` | Current model with Claude diamond icon |
+| `main*` | Git branch (`*` indicates uncommitted changes) |
+| `ctx:10%` | Context window usage |
+| `30% ████████░░ 2h31m` | 5-hour rate limit: percentage, progress bar, time until reset |
+| `W:15% ████░░░░░░ Sat 2pm` | Weekly rate limit: percentage, progress bar, reset day/time |
+
+## VS Code Extension
+
 A VS Code extension that displays your Claude Code usage in the status bar. Monitor your 5-hour session and weekly limits at a glance.
 
 ![Demo](images/clauder-demo.gif)
 
-## Features
+### Features
 
 **Status Bar Display**
 - Shows your current 5-hour session usage with time until reset
@@ -25,16 +77,16 @@ A VS Code extension that displays your Claude Code usage in the status bar. Moni
 - Weekly Sonnet-only usage (if applicable)
 - Model breakdown with token counts and estimated costs
 
-## Requirements
+### Requirements
 
 - macOS (uses Keychain for OAuth credentials)
 - Claude Code CLI installed and authenticated (`claude` command)
 
-## Installation
+### Installation
 
 Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=nrentas.clauder) or search for "Clauder" in VS Code Extensions.
 
-## How It Works
+### How It Works
 
 The extension reads your OAuth token from macOS Keychain (stored by Claude Code CLI) and fetches usage data from Anthropic's API.
 
@@ -50,7 +102,7 @@ The extension reads your OAuth token from macOS Keychain (stored by Claude Code 
 
 Hover over the status bar item to see a breakdown of your weekly usage across all models, Sonnet-specific limits, and estimated costs.
 
-## Configuration
+### Configuration
 
 | Setting                            | Default | Description                                              |
 | ---------------------------------- | ------- | -------------------------------------------------------- |
@@ -58,11 +110,11 @@ Hover over the status bar item to see a breakdown of your weekly usage across al
 | `clauder.refreshInterval`          | `30`    | Auto-refresh interval in seconds (5-300)                 |
 | `clauder.weeklyHighlightThreshold` | `90`    | Show weekly usage in status bar when above this % (50-100) |
 
-## Commands
+### Commands
 
 - **Clauder: Refresh** - Manually refresh usage data (or click the status bar)
 
-## Troubleshooting
+### Troubleshooting
 
 **"Not authenticated" message**
 
