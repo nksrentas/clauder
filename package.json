@@ -111,7 +111,7 @@
     "vscode:prepublish": "npm run build",
     "build": "node esbuild.js",
     "watch": "node esbuild.js --watch",
-    "package": "vsce package",
+    "package": "bunx @vscode/vsce package --no-dependencies",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest",
