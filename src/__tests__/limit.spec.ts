@@ -50,6 +50,11 @@ vi.mock('vscode', () => {
       })),
       showInformationMessage: vi.fn(),
     },
+    workspace: {
+      getConfiguration: vi.fn(() => ({
+        get: vi.fn((key: string, defaultValue: unknown) => defaultValue),
+      })),
+    },
     __items: items,
   };
 });
@@ -200,8 +205,8 @@ describe('StatusBarManager local usage display', () => {
     const bar = (manager as any).statusBarItem;
     expect(bar.text).toContain('~45%');
     expect(bar.tooltip.value).toContain('Claude Code Usage (Estimate)');
-    expect(bar.tooltip.value).toContain('~45% used');
-    expect(bar.tooltip.value).toContain('~30% used');
+    expect(bar.tooltip.value).toContain('**Session:** ~45%');
+    expect(bar.tooltip.value).toContain('**Weekly:** ~30%');
     manager.dispose();
   });
 

@@ -46,6 +46,10 @@
       {
         "command": "clauder.installShellIntegration",
         "title": "Clauder: Install Shell Integration"
+      },
+      {
+        "command": "clauder.toggleProgress",
+        "title": "Clauder: Toggle Progress Display"
       }
     ],
     "configuration": {
@@ -94,6 +98,11 @@
             "Show usage in shell statusline only"
           ],
           "description": "Where to display Claude usage status"
+        },
+        "clauder.showProgress": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Claude Code usage progress in the status bar"
         }
       }
     }

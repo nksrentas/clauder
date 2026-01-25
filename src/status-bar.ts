@@ -1,3 +1,6 @@
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import * as vscode from 'vscode';
 
 import {
@@ -145,7 +148,9 @@ export class StatusBarManager {
 
     const md = new vscode.MarkdownString();
     md.supportHtml = true;
+    md.supportThemeIcons = true;
     md.isTrusted = true;
+    md.appendMarkdown('<div style="min-width:280px">\n\n');
     md.appendMarkdown(`${styledHeading('Claude Code Usage')}\n\n`);
 
     let hasContent = false;
@@ -156,20 +161,19 @@ export class StatusBarManager {
       hasContent = true;
     };
 
+    // Weekly (All Models) - compact format
     appendSeparator();
-    md.appendMarkdown(`${styledHeading('Weekly (All Models)')}\n\n`);
-    md.appendMarkdown(`${Math.round(api.weeklyAll.utilization)}% used\n\n`);
-    if (api.weeklyAll.resetsAt) {
-      md.appendMarkdown(`Resets: ${formatResetDay(api.weeklyAll.resetsAt)}\n\n`);
-    }
+    const weeklyReset = api.weeklyAll.resetsAt
+      ? ` · ${formatResetDay(api.weeklyAll.resetsAt)}`
+      : '';
+    md.appendMarkdown(`**Weekly:** ${Math.round(api.weeklyAll.utilization)}%${weeklyReset}\n\n`);
 
+    // Weekly (Sonnet) - compact format
     if (api.weeklySonnet) {
-      appendSeparator();
-      md.appendMarkdown(`${styledHeading('Weekly (Sonnet only)')}\n\n`);
-      md.appendMarkdown(`${Math.round(api.weeklySonnet.utilization)}% used\n\n`);
-      if (api.weeklySonnet.resetsAt) {
-        md.appendMarkdown(`Resets: ${formatResetDay(api.weeklySonnet.resetsAt)}\n\n`);
-      }
+      const sonnetReset = api.weeklySonnet.resetsAt
+        ? ` · ${formatResetDay(api.weeklySonnet.resetsAt)}`
+        : '';
+      md.appendMarkdown(`**Sonnet:** ${Math.round(api.weeklySonnet.utilization)}%${sonnetReset}\n\n`);
     }
 
     if (local?.projectBreakdown && local.projectBreakdown.projects.length > 0) {
@@ -193,8 +197,11 @@ export class StatusBarManager {
       md.appendMarkdown('_No detailed usage available_\n\n');
     }
 
+    this.appendQuickSettings(md);
+
     md.appendMarkdown('---\n\n');
     md.appendMarkdown('_Click to refresh_');
+    md.appendMarkdown('\n\n</div>');
 
     return md;
   }
@@ -202,20 +209,20 @@ export class StatusBarManager {
   private buildLocalTooltip(usage: UsageSummary): vscode.MarkdownString {
     const md = new vscode.MarkdownString();
     md.supportHtml = true;
+    md.supportThemeIcons = true;
     md.isTrusted = true;
+    md.appendMarkdown('<div style="min-width:280px">\n\n');
     md.appendMarkdown(`${styledHeading('Claude Code Usage (Estimate)')}\n\n`);
     md.appendMarkdown('_API unavailable, showing local data_\n\n');
 
     md.appendMarkdown('---\n\n');
 
-    md.appendMarkdown(`${styledHeading('Current Session')}\n\n`);
-    md.appendMarkdown(`~${Math.round(usage.windowPercentage)}% used\n\n`);
-    md.appendMarkdown(`Resets in: ${formatTimeRemaining(usage.windowEndTime)}\n\n`);
+    // Current Session - compact format
+    const sessionReset = ` · ${formatTimeRemaining(usage.windowEndTime)}`;
+    md.appendMarkdown(`**Session:** ~${Math.round(usage.windowPercentage)}%${sessionReset}\n\n`);
 
-    md.appendMarkdown('---\n\n');
-
-    md.appendMarkdown(`${styledHeading('Weekly (CLI only)')}\n\n`);
-    md.appendMarkdown(`~${Math.round(usage.weeklyPercentage)}% used\n\n`);
+    // Weekly (CLI only) - compact format
+    md.appendMarkdown(`**Weekly:** ~${Math.round(usage.weeklyPercentage)}%\n\n`);
 
     if (usage.projectBreakdown && usage.projectBreakdown.projects.length > 0) {
       md.appendMarkdown('---\n\n');
@@ -233,10 +240,30 @@ export class StatusBarManager {
       }
     }
 
+    this.appendQuickSettings(md);
+
     md.appendMarkdown('---\n\n');
     md.appendMarkdown('_Click to refresh_');
+    md.appendMarkdown('\n\n</div>');
 
     return md;
+  }
+
+  private appendQuickSettings(md: vscode.MarkdownString): void {
+    let shellEnabled = false;
+    try {
+      const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+      const content = fs.readFileSync(settingsPath, 'utf-8');
+      const settings = JSON.parse(content);
+      shellEnabled = !!settings.statusLine;
+    } catch {
+      // Settings file doesn't exist or can't be read
+    }
+    const shellIcon = shellEnabled ? '$(check)' : '$(circle-outline)';
+
+    md.appendMarkdown('---\n\n');
+    md.appendMarkdown(`${styledHeading('Quick Settings')}\n\n`);
+    md.appendMarkdown(`${shellIcon} [Show shell progress](command:clauder.toggleProgress)\n\n`);
   }
 
   dispose(): void {

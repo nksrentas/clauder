@@ -1,3 +1,6 @@
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import * as vscode from 'vscode';
 
 import type { CombinedUsage } from '~/status-bar';
@@ -35,7 +38,41 @@ export function activate(context: vscode.ExtensionContext) {
     () => installShellIntegration()
   );
 
-  context.subscriptions.push(refreshCommand, installShellCommand, {
+  const toggleProgressCommand = vscode.commands.registerCommand(
+    'clauder.toggleProgress',
+    async () => {
+      const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+      try {
+        const content = fs.readFileSync(settingsPath, 'utf-8');
+        const settings = JSON.parse(content);
+
+        if (settings.statusLine) {
+          // Disable: store current config and remove
+          settings._statusLineBackup = settings.statusLine;
+          delete settings.statusLine;
+        } else if (settings._statusLineBackup) {
+          // Restore from backup
+          settings.statusLine = settings._statusLineBackup;
+          delete settings._statusLineBackup;
+        } else {
+          // No backup, create default
+          settings.statusLine = {
+            type: 'command',
+            command: 'bash ~/.claude/statusline-command.sh',
+          };
+        }
+
+        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+        vscode.window.showInformationMessage(
+          settings.statusLine ? 'Shell progress enabled' : 'Shell progress disabled'
+        );
+      } catch (err) {
+        vscode.window.showErrorMessage(`Failed to toggle shell progress: ${err}`);
+      }
+    }
+  );
+
+  context.subscriptions.push(refreshCommand, installShellCommand, toggleProgressCommand, {
     dispose: () => {
       statusBarManager.dispose();
       stopRefreshInterval();
@@ -169,7 +206,8 @@ function stopCountdownInterval(): void {
 function updateStatusDisplay(): void {
   const config = vscode.workspace.getConfiguration('clauder');
   const statusDisplay = config.get<StatusDisplayType>('statusDisplay', 'both');
-  statusBarManager.setVisible(statusDisplay !== 'shell');
+  const showProgress = config.get<boolean>('showProgress', true);
+  statusBarManager.setVisible(statusDisplay !== 'shell' && showProgress);
 }
 
 async function installShellIntegration(): Promise<void> {
