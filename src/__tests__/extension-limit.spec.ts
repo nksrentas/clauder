@@ -120,6 +120,7 @@ describe('extension limit pause/resume integration', () => {
 
     const context = {
       subscriptions: [],
+      extensionPath: '/test/extension',
       globalState: {
         get: vi.fn().mockReturnValue(true),
         update: vi.fn().mockResolvedValue(undefined),
@@ -163,6 +164,7 @@ describe('extension limit pause/resume integration', () => {
 
     const context = {
       subscriptions: [],
+      extensionPath: '/test/extension',
       globalState: {
         get: vi.fn().mockReturnValue(true),
         update: vi.fn().mockResolvedValue(undefined),
@@ -195,6 +197,7 @@ describe('extension limit pause/resume integration', () => {
 
     const context = {
       subscriptions: [],
+      extensionPath: '/test/extension',
       globalState: {
         get: vi.fn().mockReturnValue(true),
         update: vi.fn().mockResolvedValue(undefined),
@@ -227,6 +230,7 @@ describe('extension limit pause/resume integration', () => {
 
     const context = {
       subscriptions: [],
+      extensionPath: '/test/extension',
       globalState: {
         get: vi.fn().mockReturnValue(true),
         update: vi.fn().mockResolvedValue(undefined),

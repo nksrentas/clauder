@@ -8,14 +8,12 @@ INSTALL_DIR="$HOME/.claude"
 SCRIPTS_DIR="$INSTALL_DIR/scripts"
 BASE_URL="${CLAUDER_BASE_URL:-https://hellobussin.com/clauder}"
 
-# Marker comment for idempotency
 MARKER="# clauder-shell-integration"
 
-# Colors
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 BOLD='\033[1m'
 
 info() {
@@ -30,36 +28,30 @@ warn() {
   echo -e "${YELLOW}[clauder]${NC} $1"
 }
 
-# Create directories
 setup_directories() {
   info "Creating directories..."
   mkdir -p "$INSTALL_DIR"
   mkdir -p "$SCRIPTS_DIR"
 }
 
-# Download scripts
 download_scripts() {
   info "Downloading scripts..."
 
-  # Download statusline-command.sh
   curl -fsSL "$BASE_URL/statusline-command.sh" -o "$INSTALL_DIR/statusline-command.sh"
   chmod +x "$INSTALL_DIR/statusline-command.sh"
 
-  # Download fetch-usage.sh
   curl -fsSL "$BASE_URL/fetch-usage.sh" -o "$SCRIPTS_DIR/fetch-usage.sh"
   chmod +x "$SCRIPTS_DIR/fetch-usage.sh"
 
   success "Scripts downloaded to $INSTALL_DIR"
 }
 
-# Detect user's shell
 detect_shell() {
   local shell_name
   shell_name=$(basename "$SHELL")
   echo "$shell_name"
 }
 
-# Get shell rc file
 get_rc_file() {
   local shell_name="$1"
   case "$shell_name" in
@@ -79,7 +71,6 @@ get_rc_file() {
   esac
 }
 
-# Check if already configured
 is_configured() {
   local rc_file="$1"
   if [[ -f "$rc_file" ]]; then
@@ -89,7 +80,6 @@ is_configured() {
   return 1
 }
 
-# Generate shell config
 generate_config() {
   local shell_name="$1"
 
@@ -165,12 +155,72 @@ configure_shell() {
     info "Backed up $rc_file"
   fi
 
-  # Append config
   generate_config "$shell_name" >> "$rc_file"
   success "Added shell integration to $rc_file"
 }
 
-# Print usage instructions
+setup_sounds() {
+  local sounds_dir="$HOME/.claude/sounds"
+  info "Setting up notification sounds..."
+  mkdir -p "$sounds_dir"
+
+  for sound in complete warning limit; do
+    if curl -fsSL "$BASE_URL/sounds/${sound}.mp3" -o "$sounds_dir/${sound}.mp3" 2>/dev/null; then
+      success "Downloaded ${sound}.mp3"
+    else
+      warn "Could not download ${sound}.mp3"
+    fi
+  done
+}
+
+download_sound_scripts() {
+  info "Downloading sound notification scripts..."
+
+  curl -fsSL "$BASE_URL/play-sound.sh" -o "$SCRIPTS_DIR/play-sound.sh"
+  chmod +x "$SCRIPTS_DIR/play-sound.sh"
+
+  curl -fsSL "$BASE_URL/prompt-complete.sh" -o "$SCRIPTS_DIR/prompt-complete.sh"
+  chmod +x "$SCRIPTS_DIR/prompt-complete.sh"
+
+  success "Sound scripts installed"
+}
+
+configure_hooks() {
+  local settings_file="$HOME/.claude/settings.json"
+  info "Configuring Claude Code hooks..."
+
+  [[ ! -f "$settings_file" ]] && echo '{}' > "$settings_file"
+
+  if command -v jq &>/dev/null; then
+    local hook_cmd="$HOME/.claude/scripts/prompt-complete.sh"
+    if jq -e '.hooks.Stop[]?.hooks[]? | select(.command == "'"$hook_cmd"'")' "$settings_file" &>/dev/null; then
+      info "Hook already configured"
+      return 0
+    fi
+    jq --arg cmd "$hook_cmd" '
+      .hooks //= {} |
+      .hooks.Stop //= [] |
+      .hooks.Stop += [{"hooks": [{"type": "command", "command": $cmd}]}]
+    ' "$settings_file" > "${settings_file}.tmp" && mv "${settings_file}.tmp" "$settings_file"
+    success "Hooks configured in settings.json"
+  elif command -v python3 &>/dev/null; then
+    python3 << 'PYEOF'
+import json, os
+path = os.path.expanduser('~/.claude/settings.json')
+with open(path) as f: s = json.load(f)
+hook_cmd = os.path.expanduser('~/.claude/scripts/prompt-complete.sh')
+hooks = s.setdefault('hooks', {}).setdefault('Stop', [])
+# Check if hook already exists
+if not any(h.get('hooks', [{}])[0].get('command') == hook_cmd for h in hooks if h.get('hooks')):
+    hooks.append({'hooks': [{'type': 'command', 'command': hook_cmd}]})
+with open(path, 'w') as f: json.dump(s, f, indent=2)
+PYEOF
+    success "Hooks configured in settings.json"
+  else
+    warn "Install jq or python3 to auto-configure hooks"
+  fi
+}
+
 print_instructions() {
   echo ""
   echo -e "${BOLD}Installation complete!${NC}"
@@ -185,6 +235,11 @@ print_instructions() {
   echo "  - Time until 5-hour window resets"
   echo "  - Weekly usage (when above 80%)"
   echo ""
+  echo -e "${BOLD}Sound Notifications:${NC}"
+  echo "  - Completion sound when Claude Code finishes responding"
+  echo "  - Warning sound when approaching rate limits"
+  echo "  - Configure in VS Code: Settings > Clauder > Sounds"
+  echo ""
   echo "To customize prompt placement, edit ~/.zshrc (or ~/.bashrc)"
   echo "and modify the RPROMPT/PS1 lines."
   echo ""
@@ -192,15 +247,17 @@ print_instructions() {
   echo ""
 }
 
-# Main
 main() {
   echo ""
   echo -e "${BOLD}Claude Code Shell Integration Installer${NC}"
   echo ""
 
   setup_directories
+  setup_sounds
   download_scripts
+  download_sound_scripts
   configure_shell
+  configure_hooks
   print_instructions
 }
 

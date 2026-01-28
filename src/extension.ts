@@ -10,6 +10,7 @@ import type { LimitReset } from '~/limit';
 import type { PlanType, StatusDisplayType } from '~/types';
 import { UsageApiClient } from '~/usage-api';
 import { UsageTracker } from '~/usage-tracker';
+import { SoundPlayer } from '~/sound-player';
 
 const SHELL_INTEGRATION_PROMPTED_KEY = 'shellIntegrationPrompted';
 const SCRIPT_UPDATE_PROMPTED_KEY = 'scriptUpdatePrompted_v1';
@@ -18,6 +19,7 @@ const INSTALL_URL = 'https://hellobussin.com/clauder/install.sh';
 let statusBarManager: StatusBarManager;
 let usageApiClient: UsageApiClient;
 let usageTracker: UsageTracker;
+let soundPlayer: SoundPlayer;
 let refreshInterval: NodeJS.Timeout | undefined;
 let limitReset: LimitReset | null = null;
 let limitResumeTimeout: NodeJS.Timeout | undefined;
@@ -29,6 +31,7 @@ export function activate(context: vscode.ExtensionContext) {
   statusBarManager = new StatusBarManager();
   usageApiClient = new UsageApiClient();
   usageTracker = new UsageTracker();
+  soundPlayer = new SoundPlayer(context);
 
   const refreshCommand = vscode.commands.registerCommand('clauder.refresh', () =>
     updateStatusBar()
@@ -73,7 +76,17 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
-  context.subscriptions.push(refreshCommand, installShellCommand, toggleProgressCommand, {
+  const syncSoundsCommand = vscode.commands.registerCommand(
+    'clauder.syncSoundSettings',
+    () => syncSoundSettings()
+  );
+
+  context.subscriptions.push(
+    refreshCommand,
+    installShellCommand,
+    toggleProgressCommand,
+    syncSoundsCommand,
+    {
     dispose: () => {
       statusBarManager.dispose();
       stopRefreshInterval();
@@ -85,6 +98,9 @@ export function activate(context: vscode.ExtensionContext) {
       setupRefreshInterval();
       updateStatusDisplay();
       updateStatusBar();
+    }
+    if (e.affectsConfiguration('clauder.sounds')) {
+      syncSoundSettings();
     }
   });
   context.subscriptions.push(configListener);
@@ -149,6 +165,12 @@ async function updateStatusBar(): Promise<void> {
     }
 
     statusBarManager.update(combined);
+
+    if (result.data) {
+      const maxUtil = Math.max(result.data.session.utilization, result.data.weeklyAll.utilization);
+      soundPlayer.checkRateLimitThreshold(maxUtil);
+    }
+
     console.log('[Clauder] API data:', JSON.stringify(result.data, null, 2));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
@@ -280,6 +302,28 @@ async function checkScriptVersion(context: vscode.ExtensionContext): Promise<voi
   } catch (err) {
     console.log('[Clauder] Could not check script version:', err);
   }
+}
+
+function syncSoundSettings(): void {
+  try {
+    const config = vscode.workspace.getConfiguration('clauder.sounds');
+    const enabled = config.get<boolean>('enabled', true);
+    const enabledFile = path.join(os.homedir(), '.claude', 'sounds-enabled');
+
+    const claudeDir = path.join(os.homedir(), '.claude');
+    if (!fs.existsSync(claudeDir)) {
+      fs.mkdirSync(claudeDir, { recursive: true });
+    }
+
+    fs.writeFileSync(enabledFile, enabled ? 'true' : 'false');
+    console.log('[Clauder] Sound settings synced:', enabled);
+  } catch (err) {
+    console.log('[Clauder] Failed to sync sound settings:', err);
+  }
+}
+
+export function getSoundPlayer(): SoundPlayer {
+  return soundPlayer;
 }
 
 export function deactivate() {

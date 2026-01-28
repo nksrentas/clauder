@@ -50,6 +50,10 @@
       {
         "command": "clauder.toggleProgress",
         "title": "Clauder: Toggle Progress Display"
+      },
+      {
+        "command": "clauder.syncSoundSettings",
+        "title": "Clauder: Sync Sound Settings"
       }
     ],
     "configuration": {
@@ -103,6 +107,38 @@
           "type": "boolean",
           "default": true,
           "description": "Show Claude Code usage progress in the status bar"
+        },
+        "clauder.sounds.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable all sound notifications"
+        },
+        "clauder.sounds.promptCompletion": {
+          "type": "boolean",
+          "default": true,
+          "description": "Play sound when Claude Code finishes responding"
+        },
+        "clauder.sounds.rateLimitWarning": {
+          "type": "boolean",
+          "default": true,
+          "description": "Play sound when approaching rate limits (80%, 90%)"
+        },
+        "clauder.sounds.rateLimitHit": {
+          "type": "boolean",
+          "default": true,
+          "description": "Play sound when rate limit is reached (100%)"
+        },
+        "clauder.sounds.warningThreshold": {
+          "type": "number",
+          "default": 80,
+          "minimum": 50,
+          "maximum": 99,
+          "description": "Usage percentage to trigger warning sound"
+        },
+        "clauder.sounds.customSoundPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional path to custom sound file (overrides built-in sounds)"
         }
       }
     }
