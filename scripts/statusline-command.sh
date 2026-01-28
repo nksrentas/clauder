@@ -19,6 +19,11 @@ RESET='\033[0m'
 DIM='\033[2m'
 
 # Read JSON input from stdin (official API)
+# Exit gracefully if no stdin (e.g., called from shell prompt instead of Claude Code)
+if [[ -t 0 ]]; then
+  echo ""
+  exit 0
+fi
 INPUT=$(cat)
 
 # Helper: extract value from stdin JSON

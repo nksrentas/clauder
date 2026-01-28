@@ -4,8 +4,6 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOUNDS_DIR="$HOME/.claude/sounds"
 
-cat > /dev/null
-
 ENABLED_FILE="$HOME/.claude/sounds-enabled"
 if [[ -f "$ENABLED_FILE" && "$(cat "$ENABLED_FILE")" == "false" ]]; then
   exit 0

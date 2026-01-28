@@ -8,8 +8,6 @@ INSTALL_DIR="$HOME/.claude"
 SCRIPTS_DIR="$INSTALL_DIR/scripts"
 BASE_URL="${CLAUDER_BASE_URL:-https://hellobussin.com/clauder}"
 
-MARKER="# clauder-shell-integration"
-
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
@@ -44,119 +42,6 @@ download_scripts() {
   chmod +x "$SCRIPTS_DIR/fetch-usage.sh"
 
   success "Scripts downloaded to $INSTALL_DIR"
-}
-
-detect_shell() {
-  local shell_name
-  shell_name=$(basename "$SHELL")
-  echo "$shell_name"
-}
-
-get_rc_file() {
-  local shell_name="$1"
-  case "$shell_name" in
-    zsh)
-      echo "$HOME/.zshrc"
-      ;;
-    bash)
-      if [[ -f "$HOME/.bash_profile" ]]; then
-        echo "$HOME/.bash_profile"
-      else
-        echo "$HOME/.bashrc"
-      fi
-      ;;
-    *)
-      echo "$HOME/.bashrc"
-      ;;
-  esac
-}
-
-is_configured() {
-  local rc_file="$1"
-  if [[ -f "$rc_file" ]]; then
-    grep -q "$MARKER" "$rc_file" 2>/dev/null
-    return $?
-  fi
-  return 1
-}
-
-generate_config() {
-  local shell_name="$1"
-
-  cat << 'EOF'
-
-# clauder-shell-integration
-# Claude Code usage statusline - https://github.com/nksrentas/clauder
-clauder_statusline() {
-  if [[ -x "$HOME/.claude/statusline-command.sh" ]]; then
-    "$HOME/.claude/statusline-command.sh"
-  fi
-}
-EOF
-
-  if [[ "$shell_name" == "zsh" ]]; then
-    cat << 'EOF'
-
-# Add to RPROMPT for right-side display (recommended)
-# Uncomment one of the following options:
-
-# Option 1: Right prompt (recommended - doesn't affect command input)
-# RPROMPT='$(clauder_statusline)'
-
-# Option 2: Add to existing prompt
-# PROMPT="$PROMPT"'$(clauder_statusline) '
-
-# Option 3: Precmd hook (updates on each command)
-precmd_clauder() {
-  CLAUDER_STATUS=$(clauder_statusline)
-}
-precmd_functions+=(precmd_clauder)
-RPROMPT='$CLAUDER_STATUS'
-# end clauder-shell-integration
-EOF
-  else
-    cat << 'EOF'
-
-# Add to PS1 prompt
-# Uncomment to enable:
-# PS1="$PS1\$(clauder_statusline) "
-
-# Or use PROMPT_COMMAND for bash (updates on each command)
-__clauder_prompt() {
-  CLAUDER_STATUS=$(clauder_statusline)
-}
-PROMPT_COMMAND="__clauder_prompt${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
-PS1="$PS1\$CLAUDER_STATUS "
-# end clauder-shell-integration
-EOF
-  fi
-}
-
-# Configure shell
-configure_shell() {
-  local shell_name
-  local rc_file
-
-  shell_name=$(detect_shell)
-  rc_file=$(get_rc_file "$shell_name")
-
-  info "Detected shell: $shell_name"
-  info "Config file: $rc_file"
-
-  if is_configured "$rc_file"; then
-    warn "Shell integration already configured in $rc_file"
-    info "Updating scripts only (config preserved)"
-    return 0
-  fi
-
-  # Backup rc file
-  if [[ -f "$rc_file" ]]; then
-    cp "$rc_file" "${rc_file}.backup.$(date +%Y%m%d%H%M%S)"
-    info "Backed up $rc_file"
-  fi
-
-  generate_config "$shell_name" >> "$rc_file"
-  success "Added shell integration to $rc_file"
 }
 
 setup_sounds() {
@@ -225,25 +110,25 @@ print_instructions() {
   echo ""
   echo -e "${BOLD}Installation complete!${NC}"
   echo ""
-  echo "To activate the statusline, either:"
-  echo "  1. Open a new terminal window"
-  echo "  2. Run: source ~/.zshrc (or ~/.bashrc)"
+  echo -e "${BOLD}Statusline:${NC}"
+  echo "  Add to ~/.claude/settings.json:"
   echo ""
-  echo "The statusline shows:"
-  echo "  - Git branch and dirty status"
-  echo "  - Claude usage percentage with color-coded bar"
-  echo "  - Time until 5-hour window resets"
-  echo "  - Weekly usage (when above 80%)"
+  echo '  {
+    "statusLine": {
+      "type": "command",
+      "command": "~/.claude/statusline-command.sh",
+      "padding": 0
+    }
+  }'
+  echo ""
+  echo "  The statusline shows:"
+  echo "  - Model name and git branch"
+  echo "  - Context window usage"
+  echo "  - Rate limit usage with countdown"
   echo ""
   echo -e "${BOLD}Sound Notifications:${NC}"
   echo "  - Completion sound when Claude Code finishes responding"
-  echo "  - Warning sound when approaching rate limits"
-  echo "  - Configure in VS Code: Settings > Clauder > Sounds"
-  echo ""
-  echo "To customize prompt placement, edit ~/.zshrc (or ~/.bashrc)"
-  echo "and modify the RPROMPT/PS1 lines."
-  echo ""
-  echo -e "${BLUE}Tip:${NC} Run 'clauder_statusline' manually to test."
+  echo "  - Hooks configured in ~/.claude/settings.json"
   echo ""
 }
 
@@ -256,7 +141,6 @@ main() {
   setup_sounds
   download_scripts
   download_sound_scripts
-  configure_shell
   configure_hooks
   print_instructions
 }
