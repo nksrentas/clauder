@@ -12,6 +12,7 @@ import { UsageApiClient } from '~/usage-api';
 import { UsageTracker } from '~/usage-tracker';
 
 const SHELL_INTEGRATION_PROMPTED_KEY = 'shellIntegrationPrompted';
+const SCRIPT_UPDATE_PROMPTED_KEY = 'scriptUpdatePrompted_v1';
 const INSTALL_URL = 'https://hellobussin.com/clauder/install.sh';
 
 let statusBarManager: StatusBarManager;
@@ -92,6 +93,7 @@ export function activate(context: vscode.ExtensionContext) {
   setupRefreshInterval();
   updateStatusBar();
   promptShellIntegration(context);
+  checkScriptVersion(context);
 }
 
 async function updateStatusBar(): Promise<void> {
@@ -236,6 +238,47 @@ async function promptShellIntegration(context: vscode.ExtensionContext): Promise
 
   if (action === 'Install Shell Integration') {
     await installShellIntegration();
+  }
+}
+
+async function checkScriptVersion(context: vscode.ExtensionContext): Promise<void> {
+  const alreadyPrompted = context.globalState.get<boolean>(SCRIPT_UPDATE_PROMPTED_KEY);
+  if (alreadyPrompted) {
+    return;
+  }
+
+  const possiblePaths = [
+    path.join(os.homedir(), '.claude', 'scripts', 'statusline-command.sh'),
+    path.join(os.homedir(), '.claude', 'statusline-command.sh'),
+  ];
+
+  const scriptPath = possiblePaths.find((p) => fs.existsSync(p));
+  if (!scriptPath) {
+    return;
+  }
+
+  try {
+    const content = fs.readFileSync(scriptPath, 'utf-8');
+
+    if (content.includes('tmp.$$')) {
+      return; // Already updated
+    }
+
+    const action = await vscode.window.showWarningMessage(
+      'Your Claude statusline script is outdated. Update to fix disappearing progress bars.',
+      'Update Now',
+      'Remind Later',
+      "Don't Show Again"
+    );
+
+    if (action === 'Update Now') {
+      await installShellIntegration();
+      await context.globalState.update(SCRIPT_UPDATE_PROMPTED_KEY, true);
+    } else if (action === "Don't Show Again") {
+      await context.globalState.update(SCRIPT_UPDATE_PROMPTED_KEY, true);
+    }
+  } catch (err) {
+    console.log('[Clauder] Could not check script version:', err);
   }
 }
 

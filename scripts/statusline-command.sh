@@ -134,7 +134,7 @@ get_rate_limit_usage() {
   local now
   now=$(date +%s)
 
-  # Check cache
+  # Check cache freshness
   if [[ -f "$CACHE_FILE" ]]; then
     local cache_time
     cache_time=$(stat -f %m "$CACHE_FILE" 2>/dev/null || stat -c %Y "$CACHE_FILE" 2>/dev/null)
@@ -144,14 +144,33 @@ get_rate_limit_usage() {
     fi
   fi
 
-  # Fetch fresh data in background
+  # Fetch fresh data in background, writing to temp file first
+  # Use PID to avoid race conditions between concurrent calls
+  local temp_file="${CACHE_FILE}.tmp.$$"
+
   if [[ -x "$SCRIPT_DIR/fetch-usage.sh" ]]; then
-    "$SCRIPT_DIR/fetch-usage.sh" > "$CACHE_FILE" 2>/dev/null &
+    (
+      "$SCRIPT_DIR/fetch-usage.sh" > "$temp_file" 2>/dev/null
+      # Only replace cache if we got valid JSON with five_hour field (not error JSON)
+      # Error responses have "error" field but no "five_hour" field
+      if [[ -s "$temp_file" ]] && jq -e '.five_hour' "$temp_file" >/dev/null 2>&1; then
+        mv "$temp_file" "$CACHE_FILE"
+      else
+        rm -f "$temp_file"
+      fi
+    ) &
   elif [[ -x "$HOME/.claude/scripts/fetch-usage.sh" ]]; then
-    "$HOME/.claude/scripts/fetch-usage.sh" > "$CACHE_FILE" 2>/dev/null &
+    (
+      "$HOME/.claude/scripts/fetch-usage.sh" > "$temp_file" 2>/dev/null
+      if [[ -s "$temp_file" ]] && jq -e '.five_hour' "$temp_file" >/dev/null 2>&1; then
+        mv "$temp_file" "$CACHE_FILE"
+      else
+        rm -f "$temp_file"
+      fi
+    ) &
   fi
 
-  # Return cached if exists
+  # Always return existing cache (even if stale) rather than empty
   if [[ -f "$CACHE_FILE" ]]; then
     cat "$CACHE_FILE"
   else
