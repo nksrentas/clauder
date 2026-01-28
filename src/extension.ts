@@ -81,11 +81,24 @@ export function activate(context: vscode.ExtensionContext) {
     () => syncSoundSettings()
   );
 
+  const toggleSoundsCommand = vscode.commands.registerCommand(
+    'clauder.toggleSounds',
+    async () => {
+      const config = vscode.workspace.getConfiguration('clauder.sounds');
+      const currentEnabled = config.get<boolean>('enabled', true);
+      await config.update('enabled', !currentEnabled, vscode.ConfigurationTarget.Global);
+      vscode.window.showInformationMessage(
+        `Sound notifications ${!currentEnabled ? 'enabled' : 'disabled'}`
+      );
+    }
+  );
+
   context.subscriptions.push(
     refreshCommand,
     installShellCommand,
     toggleProgressCommand,
     syncSoundsCommand,
+    toggleSoundsCommand,
     {
     dispose: () => {
       statusBarManager.dispose();

@@ -35,7 +35,7 @@ Add to `~/.claude/settings.json`:
 {
   "statusLine": {
     "type": "command",
-    "command": "~/.claude/scripts/statusline-command.sh",
+    "command": "~/.claude/statusline-command.sh",
     "padding": 0
   }
 }
@@ -77,6 +77,11 @@ A VS Code extension that displays your Claude Code usage in the status bar. Moni
 - Weekly Sonnet-only usage (if applicable)
 - Model breakdown with token counts and estimated costs
 
+**Sound Notifications**
+- Plays a sound when Claude Code finishes responding
+- Optional warning sounds when approaching rate limits
+- Toggle on/off via Command Palette or VS Code settings
+
 ### Requirements
 
 - macOS (uses Keychain for OAuth credentials)
@@ -109,10 +114,16 @@ Hover over the status bar item to see a breakdown of your weekly usage across al
 | `clauder.plan`                     | `pro`   | Your subscription plan: `pro`, `max5`, or `max20`        |
 | `clauder.refreshInterval`          | `30`    | Auto-refresh interval in seconds (5-300)                 |
 | `clauder.weeklyHighlightThreshold` | `90`    | Show weekly usage in status bar when above this % (50-100) |
+| `clauder.sounds.enabled`           | `true`  | Enable/disable all sound notifications                   |
+| `clauder.sounds.promptCompletion`  | `true`  | Play sound when Claude Code finishes responding          |
+| `clauder.sounds.rateLimitWarning`  | `true`  | Play sound when approaching rate limits                  |
 
 ### Commands
 
 - **Clauder: Refresh** - Manually refresh usage data (or click the status bar)
+- **Clauder: Toggle Sound Notifications** - Enable/disable sound notifications
+- **Clauder: Toggle Progress Display** - Show/hide shell statusline progress
+- **Clauder: Install Shell Integration** - Install statusline scripts
 
 ### Troubleshooting
 

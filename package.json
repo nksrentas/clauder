@@ -54,6 +54,10 @@
       {
         "command": "clauder.syncSoundSettings",
         "title": "Clauder: Sync Sound Settings"
+      },
+      {
+        "command": "clauder.toggleSounds",
+        "title": "Clauder: Toggle Sound Notifications"
       }
     ],
     "configuration": {
