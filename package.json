@@ -2,7 +2,7 @@
   "name": "clauder",
   "displayName": "Clauder",
   "description": "Track your Claude Code usage directly in VS Code. Shows real-time session and weekly utilization with color-coded status bar indicator.",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "publisher": "nrentas",
   "author": {
     "email": "nksrentas@gmail.com",
