@@ -8,6 +8,7 @@ import {
   shouldRemainPaused,
 } from '~/limit';
 import { StatusBarManager } from '~/status-bar';
+import type { UsageSummary } from '~/types';
 
 vi.mock('vscode', () => {
   const items: any[] = [];
@@ -48,6 +49,11 @@ vi.mock('vscode', () => {
         sendText: vi.fn(),
       })),
       showInformationMessage: vi.fn(),
+    },
+    workspace: {
+      getConfiguration: vi.fn(() => ({
+        get: vi.fn((key: string, defaultValue: unknown) => defaultValue),
+      })),
     },
     __items: items,
   };
@@ -117,7 +123,8 @@ describe('StatusBarManager limit display', () => {
 
     const bar = (manager as any).statusBarItem;
     expect(bar.text.toLowerCase()).toContain('limit reached');
-    expect(bar.text).toMatch(/\d+m/);
+    expect(bar.text).toContain('resets in');
+    expect(bar.text).toMatch(/resets in (\d+h )?\d+m/);
     expect(bar.tooltip).toContain('You hit 100% of your 5-hour window');
     expect(bar.color).toBeInstanceOf((await import('vscode')).ThemeColor);
     manager.dispose();
@@ -131,6 +138,7 @@ describe('StatusBarManager limit display', () => {
 
     const bar = (manager as any).statusBarItem;
     expect(bar.text.toLowerCase()).toContain('weekly limit reached');
+    expect(bar.text).toContain('resets in');
     expect(bar.tooltip).toContain('You hit 100% of your weekly limit');
     expect(bar.color).toBeInstanceOf((await import('vscode')).ThemeColor);
     manager.dispose();
@@ -144,6 +152,7 @@ describe('StatusBarManager limit display', () => {
 
     const bar = (manager as any).statusBarItem;
     expect(bar.text.toLowerCase()).toContain('weekly sonnet limit reached');
+    expect(bar.text).toContain('resets in');
     expect(bar.tooltip).toContain('You hit 100% of your weekly Sonnet limit');
     expect(bar.color).toBeInstanceOf((await import('vscode')).ThemeColor);
     manager.dispose();
@@ -189,16 +198,15 @@ describe('StatusBarManager local usage display', () => {
         sonnet: { requests: 10, inputTokens: 50000, outputTokens: 25000, cost: 5.25 },
         haiku: { requests: 0, inputTokens: 0, outputTokens: 0, cost: 0 },
       },
-    };
+    } as UsageSummary;
 
     manager.update({ api: null, local: localUsage });
 
     const bar = (manager as any).statusBarItem;
     expect(bar.text).toContain('~45%');
     expect(bar.tooltip.value).toContain('Claude Code Usage (Estimate)');
-    expect(bar.tooltip.value).toContain('~45% used');
-    expect(bar.tooltip.value).toContain('~30% used');
-    expect(bar.tooltip.value).toContain('$5.25');
+    expect(bar.tooltip.value).toContain('**Session:** ~45%');
+    expect(bar.tooltip.value).toContain('**Weekly:** ~30%');
     manager.dispose();
   });
 
@@ -214,7 +222,7 @@ describe('StatusBarManager local usage display', () => {
         sonnet: { requests: 0, inputTokens: 0, outputTokens: 0, cost: 0 },
         haiku: { requests: 0, inputTokens: 0, outputTokens: 0, cost: 0 },
       },
-    };
+    } as UsageSummary;
 
     manager.update({ api: null, local: localUsage });
 

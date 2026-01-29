@@ -2,7 +2,7 @@
   "name": "clauder",
   "displayName": "Clauder",
   "description": "Track your Claude Code usage directly in VS Code. Shows real-time session and weekly utilization with color-coded status bar indicator.",
-  "version": "0.1.4",
+  "version": "0.1.8",
   "publisher": "nrentas",
   "author": {
     "email": "nksrentas@gmail.com",
@@ -42,6 +42,22 @@
       {
         "command": "clauder.refresh",
         "title": "Clauder: Refresh"
+      },
+      {
+        "command": "clauder.installShellIntegration",
+        "title": "Clauder: Install Shell Integration"
+      },
+      {
+        "command": "clauder.toggleProgress",
+        "title": "Clauder: Toggle Progress Display"
+      },
+      {
+        "command": "clauder.syncSoundSettings",
+        "title": "Clauder: Sync Sound Settings"
+      },
+      {
+        "command": "clauder.toggleSounds",
+        "title": "Clauder: Toggle Sound Notifications"
       }
     ],
     "configuration": {
@@ -75,6 +91,58 @@
           "minimum": 50,
           "maximum": 100,
           "description": "Weekly utilization percentage to start showing weekly usage alongside session"
+        },
+        "clauder.statusDisplay": {
+          "type": "string",
+          "default": "both",
+          "enum": [
+            "both",
+            "vscode",
+            "shell"
+          ],
+          "enumDescriptions": [
+            "Show usage in both VS Code status bar and shell",
+            "Show usage in VS Code status bar only",
+            "Show usage in shell statusline only"
+          ],
+          "description": "Where to display Claude usage status"
+        },
+        "clauder.showProgress": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Claude Code usage progress in the status bar"
+        },
+        "clauder.sounds.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable all sound notifications"
+        },
+        "clauder.sounds.promptCompletion": {
+          "type": "boolean",
+          "default": true,
+          "description": "Play sound when Claude Code finishes responding"
+        },
+        "clauder.sounds.rateLimitWarning": {
+          "type": "boolean",
+          "default": true,
+          "description": "Play sound when approaching rate limits (80%, 90%)"
+        },
+        "clauder.sounds.rateLimitHit": {
+          "type": "boolean",
+          "default": true,
+          "description": "Play sound when rate limit is reached (100%)"
+        },
+        "clauder.sounds.warningThreshold": {
+          "type": "number",
+          "default": 80,
+          "minimum": 50,
+          "maximum": 99,
+          "description": "Usage percentage to trigger warning sound"
+        },
+        "clauder.sounds.customSoundPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional path to custom sound file (overrides built-in sounds)"
         }
       }
     }
@@ -83,7 +151,7 @@
     "vscode:prepublish": "npm run build",
     "build": "node esbuild.js",
     "watch": "node esbuild.js --watch",
-    "package": "vsce package",
+    "package": "bunx @vscode/vsce package --no-dependencies",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest",

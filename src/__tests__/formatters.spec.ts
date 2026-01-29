@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   capitalize,
+  formatPredictionTime,
+  formatRate,
   formatResetDay,
   formatTimeRemaining,
   formatTokens,
@@ -113,5 +115,54 @@ describe('capitalize', () => {
 
   it('handles already capitalized', () => {
     expect(capitalize('Opus')).toBe('Opus');
+  });
+});
+
+describe('formatPredictionTime', () => {
+  it('returns "unknown" for null', () => {
+    expect(formatPredictionTime(null)).toBe('unknown');
+  });
+
+  it('returns "now" for zero or negative', () => {
+    expect(formatPredictionTime(0)).toBe('now');
+    expect(formatPredictionTime(-1000)).toBe('now');
+  });
+
+  it('formats minutes only when less than an hour', () => {
+    const thirtyMin = 30 * 60 * 1000;
+    expect(formatPredictionTime(thirtyMin)).toBe('~30m');
+  });
+
+  it('formats hours and minutes', () => {
+    const twoHours15Min = 2 * 60 * 60 * 1000 + 15 * 60 * 1000;
+    expect(formatPredictionTime(twoHours15Min)).toBe('~2h 15m');
+  });
+
+  it('formats days and hours when over 24 hours', () => {
+    const oneDayFourHours = 28 * 60 * 60 * 1000;
+    expect(formatPredictionTime(oneDayFourHours)).toBe('~1d 4h');
+  });
+
+  it('formats exact hours without minutes', () => {
+    const twoHours = 2 * 60 * 60 * 1000;
+    expect(formatPredictionTime(twoHours)).toBe('~2h');
+  });
+});
+
+describe('formatRate', () => {
+  it('formats small numbers', () => {
+    expect(formatRate(500)).toBe('500 tokens/hr');
+  });
+
+  it('formats thousands as K', () => {
+    expect(formatRate(50_000)).toBe('50K tokens/hr');
+  });
+
+  it('formats millions as M', () => {
+    expect(formatRate(1_500_000)).toBe('1.5M tokens/hr');
+  });
+
+  it('handles zero', () => {
+    expect(formatRate(0)).toBe('0 tokens/hr');
   });
 });

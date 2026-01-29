@@ -6,3 +6,4 @@ tsconfig.json
 esbuild.js
 **/*.ts
 **/*.map
+!media/sounds/**

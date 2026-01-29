@@ -69,58 +69,81 @@ export class UsageApiClient {
 
   private getOAuthToken(): Promise<string | null> {
     return new Promise((resolve) => {
-      // First, try macOS keychain
-      exec(
-        `security find-generic-password -s "${UsageApiClient.KEYCHAIN_SERVICE}" -w`,
-        (error, stdout) => {
-          if (!error) {
-            try {
-              const creds = JSON.parse(stdout.trim());
-              const token = creds?.claudeAiOauth?.accessToken;
-              if (token) {
-                console.log('[Clauder] Using token from macOS keychain');
-                resolve(token);
-                return;
-              }
-            } catch {
-              console.log('[Clauder] Failed to parse keychain credentials');
-            }
-          } else {
-            console.log('[Clauder] Keychain access failed:', error.message);
-          }
+      const command = this.getKeychainCommand();
+      if (!command) {
+        // No keychain command for this platform, try fallbacks
+        this.tryFallbacks(resolve);
+        return;
+      }
 
-          // Fallback: Check ANTHROPIC_API_KEY environment variable
-          const envToken = process.env.ANTHROPIC_API_KEY;
-          if (envToken && envToken.trim()) {
-            console.log('[Clauder] Using token from ANTHROPIC_API_KEY');
-            resolve(envToken.trim());
-            return;
-          }
-
-          // Fallback: Try to read from ~/.claude/.credentials.json
-          const credentialsPath = path.join(os.homedir(), '.claude', '.credentials.json');
-
+      exec(command, (error, stdout) => {
+        if (!error) {
           try {
-            if (fs.existsSync(credentialsPath)) {
-              const credentialsContent = fs.readFileSync(credentialsPath, 'utf-8');
-              const credentials = JSON.parse(credentialsContent);
-              const token = credentials?.claudeAiOauth?.accessToken;
-
-              if (token) {
-                console.log('[Clauder] Using token from ~/.claude/.credentials.json');
-                resolve(token);
-                return;
-              }
+            const creds = JSON.parse(stdout.trim());
+            const token = creds?.claudeAiOauth?.accessToken;
+            if (token) {
+              console.log('[Clauder] Using token from system keychain');
+              resolve(token);
+              return;
             }
-          } catch (readError) {
-            console.log('[Clauder] Failed to read credentials file:', readError instanceof Error ? readError.message : 'Unknown error');
+          } catch {
+            console.log('[Clauder] Failed to parse keychain credentials');
           }
-
-          console.log('[Clauder] No OAuth token found');
-          resolve(null);
+        } else {
+          console.log('[Clauder] Keychain access failed:', error.message);
         }
-      );
+
+        // Keychain failed or had no token, try fallbacks
+        this.tryFallbacks(resolve);
+      });
     });
+  }
+
+  private tryFallbacks(resolve: (token: string | null) => void): void {
+    // Fallback 1: Check CLAUDE_CODE_API_KEY environment variable
+    const envToken = process.env.CLAUDE_CODE_API_KEY;
+    if (envToken && envToken.trim()) {
+      console.log('[Clauder] Using token from CLAUDE_CODE_API_KEY');
+      resolve(envToken.trim());
+      return;
+    }
+
+    // Fallback 2: Try to read from ~/.claude/.credentials.json
+    const credentialsPath = path.join(os.homedir(), '.claude', '.credentials.json');
+    try {
+      if (fs.existsSync(credentialsPath)) {
+        const credentialsContent = fs.readFileSync(credentialsPath, 'utf-8');
+        const credentials = JSON.parse(credentialsContent);
+        const token = credentials?.claudeAiOauth?.accessToken;
+
+        if (token) {
+          console.log('[Clauder] Using token from ~/.claude/.credentials.json');
+          resolve(token);
+          return;
+        }
+      }
+    } catch (readError) {
+      console.log('[Clauder] Failed to read credentials file:', readError instanceof Error ? readError.message : 'Unknown error');
+    }
+
+    console.log('[Clauder] No OAuth token found');
+    resolve(null);
+  }
+
+  private getKeychainCommand(): string | null {
+    const service = UsageApiClient.KEYCHAIN_SERVICE;
+
+    switch (process.platform) {
+      case 'darwin':
+        return `security find-generic-password -s "${service}" -w`;
+      case 'win32':
+        // PowerShell command to read from Windows Credential Manager using CredRead API
+        return `powershell -Command "$cred = Get-StoredCredential -Target '${service}' -AsCredentialObject; if ($cred) { $cred.Password } else { exit 1 }"`;
+      case 'linux':
+        return `secret-tool lookup service "${service}"`;
+      default:
+        return null;
+    }
   }
 
   private callApi(token: string): Promise<OAuthUsageResponse> {

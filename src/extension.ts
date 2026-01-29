@@ -1,30 +1,105 @@
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import * as vscode from 'vscode';
 
 import type { CombinedUsage } from '~/status-bar';
 import { StatusBarManager } from '~/status-bar';
 import { computeResumeDelay, getLimitReset, shouldRemainPaused } from '~/limit';
 import type { LimitReset } from '~/limit';
-import type { PlanType } from '~/types';
+import type { PlanType, StatusDisplayType } from '~/types';
 import { UsageApiClient } from '~/usage-api';
 import { UsageTracker } from '~/usage-tracker';
+import { SoundPlayer } from '~/sound-player';
+
+const SHELL_INTEGRATION_PROMPTED_KEY = 'shellIntegrationPrompted';
+const SCRIPT_UPDATE_PROMPTED_KEY = 'scriptUpdatePrompted_v1';
+const INSTALL_URL = 'https://hellobussin.com/clauder/install.sh';
 
 let statusBarManager: StatusBarManager;
 let usageApiClient: UsageApiClient;
 let usageTracker: UsageTracker;
+let soundPlayer: SoundPlayer;
 let refreshInterval: NodeJS.Timeout | undefined;
 let limitReset: LimitReset | null = null;
 let limitResumeTimeout: NodeJS.Timeout | undefined;
+let countdownInterval: NodeJS.Timeout | undefined;
+let extensionContext: vscode.ExtensionContext;
 
 export function activate(context: vscode.ExtensionContext) {
+  extensionContext = context;
   statusBarManager = new StatusBarManager();
   usageApiClient = new UsageApiClient();
   usageTracker = new UsageTracker();
+  soundPlayer = new SoundPlayer(context);
 
   const refreshCommand = vscode.commands.registerCommand('clauder.refresh', () =>
     updateStatusBar()
   );
 
-  context.subscriptions.push(refreshCommand, {
+  const installShellCommand = vscode.commands.registerCommand(
+    'clauder.installShellIntegration',
+    () => installShellIntegration()
+  );
+
+  const toggleProgressCommand = vscode.commands.registerCommand(
+    'clauder.toggleProgress',
+    async () => {
+      const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+      try {
+        const content = fs.readFileSync(settingsPath, 'utf-8');
+        const settings = JSON.parse(content);
+
+        if (settings.statusLine) {
+          // Disable: store current config and remove
+          settings._statusLineBackup = settings.statusLine;
+          delete settings.statusLine;
+        } else if (settings._statusLineBackup) {
+          // Restore from backup
+          settings.statusLine = settings._statusLineBackup;
+          delete settings._statusLineBackup;
+        } else {
+          // No backup, create default
+          settings.statusLine = {
+            type: 'command',
+            command: 'bash ~/.claude/statusline-command.sh',
+          };
+        }
+
+        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+        vscode.window.showInformationMessage(
+          settings.statusLine ? 'Shell progress enabled' : 'Shell progress disabled'
+        );
+      } catch (err) {
+        vscode.window.showErrorMessage(`Failed to toggle shell progress: ${err}`);
+      }
+    }
+  );
+
+  const syncSoundsCommand = vscode.commands.registerCommand(
+    'clauder.syncSoundSettings',
+    () => syncSoundSettings()
+  );
+
+  const toggleSoundsCommand = vscode.commands.registerCommand(
+    'clauder.toggleSounds',
+    async () => {
+      const config = vscode.workspace.getConfiguration('clauder.sounds');
+      const currentEnabled = config.get<boolean>('enabled', true);
+      await config.update('enabled', !currentEnabled, vscode.ConfigurationTarget.Global);
+      vscode.window.showInformationMessage(
+        `Sound notifications ${!currentEnabled ? 'enabled' : 'disabled'}`
+      );
+    }
+  );
+
+  context.subscriptions.push(
+    refreshCommand,
+    installShellCommand,
+    toggleProgressCommand,
+    syncSoundsCommand,
+    toggleSoundsCommand,
+    {
     dispose: () => {
       statusBarManager.dispose();
       stopRefreshInterval();
@@ -34,13 +109,20 @@ export function activate(context: vscode.ExtensionContext) {
   const configListener = vscode.workspace.onDidChangeConfiguration((e) => {
     if (e.affectsConfiguration('clauder')) {
       setupRefreshInterval();
+      updateStatusDisplay();
       updateStatusBar();
+    }
+    if (e.affectsConfiguration('clauder.sounds')) {
+      syncSoundSettings();
     }
   });
   context.subscriptions.push(configListener);
 
+  updateStatusDisplay();
   setupRefreshInterval();
   updateStatusBar();
+  promptShellIntegration(context);
+  checkScriptVersion(context);
 }
 
 async function updateStatusBar(): Promise<void> {
@@ -73,7 +155,7 @@ async function updateStatusBar(): Promise<void> {
     let localData = null;
     try {
       const config = vscode.workspace.getConfiguration('clauder');
-      const plan = config.get<PlanType>('plan', 'max5');
+      const plan = config.get<PlanType>('plan', 'pro');
       const weeklyThreshold = config.get<number>('weeklyHighlightThreshold', 90);
       statusBarManager.setWeeklyThreshold(weeklyThreshold);
       localData = await usageTracker.calculateUsage(plan);
@@ -96,6 +178,12 @@ async function updateStatusBar(): Promise<void> {
     }
 
     statusBarManager.update(combined);
+
+    if (result.data) {
+      const maxUtil = Math.max(result.data.session.utilization, result.data.weeklyAll.utilization);
+      soundPlayer.checkRateLimitThreshold(maxUtil);
+    }
+
     console.log('[Clauder] API data:', JSON.stringify(result.data, null, 2));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
@@ -136,14 +224,130 @@ function stopRefreshInterval(): void {
   }
 }
 
+function startCountdownInterval(): void {
+  stopCountdownInterval();
+  countdownInterval = setInterval(() => {
+    if (limitReset) {
+      statusBarManager.showLimitReached(limitReset);
+    }
+  }, 60_000);
+}
+
+function stopCountdownInterval(): void {
+  if (countdownInterval) {
+    clearInterval(countdownInterval);
+    countdownInterval = undefined;
+  }
+}
+
+function updateStatusDisplay(): void {
+  const config = vscode.workspace.getConfiguration('clauder');
+  const statusDisplay = config.get<StatusDisplayType>('statusDisplay', 'both');
+  const showProgress = config.get<boolean>('showProgress', true);
+  statusBarManager.setVisible(statusDisplay !== 'shell' && showProgress);
+}
+
+async function installShellIntegration(): Promise<void> {
+  const terminal = vscode.window.createTerminal('Claude Shell Integration');
+  terminal.show();
+  terminal.sendText(`curl -fsSL ${INSTALL_URL} | bash`);
+
+  vscode.window.showInformationMessage(
+    'Shell integration installer started. Follow the instructions in the terminal.'
+  );
+}
+
+async function promptShellIntegration(context: vscode.ExtensionContext): Promise<void> {
+  const alreadyPrompted = context.globalState.get<boolean>(SHELL_INTEGRATION_PROMPTED_KEY);
+  if (alreadyPrompted) {
+    return;
+  }
+
+  const action = await vscode.window.showInformationMessage(
+    'Enhance your terminal with Claude usage stats.',
+    'Install Shell Integration',
+    "Don't Show Again"
+  );
+
+  await context.globalState.update(SHELL_INTEGRATION_PROMPTED_KEY, true);
+
+  if (action === 'Install Shell Integration') {
+    await installShellIntegration();
+  }
+}
+
+async function checkScriptVersion(context: vscode.ExtensionContext): Promise<void> {
+  const alreadyPrompted = context.globalState.get<boolean>(SCRIPT_UPDATE_PROMPTED_KEY);
+  if (alreadyPrompted) {
+    return;
+  }
+
+  const possiblePaths = [
+    path.join(os.homedir(), '.claude', 'scripts', 'statusline-command.sh'),
+    path.join(os.homedir(), '.claude', 'statusline-command.sh'),
+  ];
+
+  const scriptPath = possiblePaths.find((p) => fs.existsSync(p));
+  if (!scriptPath) {
+    return;
+  }
+
+  try {
+    const content = fs.readFileSync(scriptPath, 'utf-8');
+
+    if (content.includes('tmp.$$')) {
+      return; // Already updated
+    }
+
+    const action = await vscode.window.showWarningMessage(
+      'Your Claude statusline script is outdated. Update to fix disappearing progress bars.',
+      'Update Now',
+      'Remind Later',
+      "Don't Show Again"
+    );
+
+    if (action === 'Update Now') {
+      await installShellIntegration();
+      await context.globalState.update(SCRIPT_UPDATE_PROMPTED_KEY, true);
+    } else if (action === "Don't Show Again") {
+      await context.globalState.update(SCRIPT_UPDATE_PROMPTED_KEY, true);
+    }
+  } catch (err) {
+    console.log('[Clauder] Could not check script version:', err);
+  }
+}
+
+function syncSoundSettings(): void {
+  try {
+    const config = vscode.workspace.getConfiguration('clauder.sounds');
+    const enabled = config.get<boolean>('enabled', true);
+    const enabledFile = path.join(os.homedir(), '.claude', 'sounds-enabled');
+
+    const claudeDir = path.join(os.homedir(), '.claude');
+    if (!fs.existsSync(claudeDir)) {
+      fs.mkdirSync(claudeDir, { recursive: true });
+    }
+
+    fs.writeFileSync(enabledFile, enabled ? 'true' : 'false');
+    console.log('[Clauder] Sound settings synced:', enabled);
+  } catch (err) {
+    console.log('[Clauder] Failed to sync sound settings:', err);
+  }
+}
+
+export function getSoundPlayer(): SoundPlayer {
+  return soundPlayer;
+}
+
 export function deactivate() {
   clearLimitPause();
   stopRefreshInterval();
-  clearLimitResumeTimeout();
+  stopCountdownInterval();
 }
 
 function scheduleLimitResume(limit: LimitReset): void {
   clearLimitResumeTimeout();
+  startCountdownInterval();
 
   const delay = computeResumeDelay(limit);
   if (delay <= 0) {
@@ -170,4 +374,5 @@ function clearLimitResumeTimeout(): void {
 function clearLimitPause(): void {
   limitReset = null;
   clearLimitResumeTimeout();
+  stopCountdownInterval();
 }
