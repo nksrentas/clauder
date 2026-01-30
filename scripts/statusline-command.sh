@@ -16,6 +16,18 @@ GRAY='\033[38;5;245m'
 RESET='\033[0m'
 DIM='\033[2m'
 
+# Detect Unicode support
+supports_unicode() {
+  # Allow override via environment variable
+  [[ "$CLAUDER_ASCII" == "1" ]] && return 1
+
+  # Check locale for UTF-8
+  local locale="${LC_ALL:-${LC_CTYPE:-${LANG:-}}}"
+  [[ "$locale" == *UTF-8* || "$locale" == *utf8* ]]
+}
+
+USE_UNICODE=$(supports_unicode && echo 1 || echo 0)
+
 # Precomputed progress bars (0-100% in 10% increments)
 declare -a BARS=(
   "░░░░░░░░░░"  # 0%
@@ -29,6 +41,21 @@ declare -a BARS=(
   "████████░░"  # 80%
   "█████████░"  # 90%
   "██████████"  # 100%
+)
+
+# ASCII fallback bars
+declare -a BARS_ASCII=(
+  "[----------]"  # 0%
+  "[#---------]"  # 10%
+  "[##--------]"  # 20%
+  "[###-------]"  # 30%
+  "[####------]"  # 40%
+  "[#####-----]"  # 50%
+  "[######----]"  # 60%
+  "[#######---]"  # 70%
+  "[########--]"  # 80%
+  "[#########-]"  # 90%
+  "[##########]"  # 100%
 )
 
 if [[ -t 0 ]]; then
@@ -189,7 +216,11 @@ build_bar() {
   (( index < 0 )) && index=0
   (( index > 10 )) && index=10
 
-  echo -e "${color}${BARS[$index]}${RESET}"
+  if [[ "$USE_UNICODE" == "1" ]]; then
+    echo -e "${color}${BARS[$index]}${RESET}"
+  else
+    echo -e "${color}${BARS_ASCII[$index]}${RESET}"
+  fi
 }
 
 get_rate_limit_usage() {

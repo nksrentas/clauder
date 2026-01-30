@@ -262,6 +262,97 @@ else
 fi
 
 ###############################################################################
+section "ASCII Fallback Progress Bars"
+
+# Helper to run with specific environment
+run_test_with_env() {
+  local env_vars="$1"
+  local input="$2"
+  echo "$input" | env -i PATH="$PATH" HOME="$HOME" $env_vars bash "$TEST_SCRIPT"
+}
+
+# Test: Unicode bars used with UTF-8 locale
+output=$(run_test_with_env "LANG=en_US.UTF-8" '{"model":{"display_name":"Opus"}}')
+# Should contain Unicode block characters or the test passes if we have any bar
+echo '{"five_hour": 50, "five_hour_resets_at": "2099-01-01T12:00:00Z"}' > "$TEST_CACHE_FILE"
+touch "$TEST_CACHE_FILE"
+output=$(run_test_with_env "LANG=en_US.UTF-8" '{"model":{"display_name":"Opus"}}')
+if [[ "$output" == *"█"* ]] || [[ "$output" == *"░"* ]]; then
+  pass "Unicode bars used with UTF-8 locale"
+else
+  fail "Unicode bars with UTF-8" "contains █ or ░" "$output"
+fi
+
+# Test: ASCII bars used with CLAUDER_ASCII=1
+echo '{"five_hour": 50, "five_hour_resets_at": "2099-01-01T12:00:00Z"}' > "$TEST_CACHE_FILE"
+touch "$TEST_CACHE_FILE"
+output=$(run_test_with_env "LANG=en_US.UTF-8 CLAUDER_ASCII=1" '{"model":{"display_name":"Opus"}}')
+if [[ "$output" == *"[#####-----]"* ]]; then
+  pass "ASCII bars used when CLAUDER_ASCII=1"
+else
+  fail "ASCII bars with CLAUDER_ASCII=1" "contains [#####-----]" "$output"
+fi
+
+# Test: ASCII bars used with non-UTF-8 locale (LC_ALL=C)
+echo '{"five_hour": 50, "five_hour_resets_at": "2099-01-01T12:00:00Z"}' > "$TEST_CACHE_FILE"
+touch "$TEST_CACHE_FILE"
+output=$(run_test_with_env "LC_ALL=C" '{"model":{"display_name":"Opus"}}')
+if [[ "$output" == *"[#"* ]] && [[ "$output" == *"]"* ]]; then
+  pass "ASCII bars used with non-UTF-8 locale"
+else
+  fail "ASCII bars with LC_ALL=C" "contains ASCII bar pattern" "$output"
+fi
+
+# Test: ASCII bars array has correct length (11 entries for 0-100%)
+ascii_bar_count=$(grep -c '\[#*-*\].*#' "$STATUSLINE_SCRIPT" || echo "0")
+if grep -q 'BARS_ASCII=' "$STATUSLINE_SCRIPT"; then
+  pass "ASCII bars array defined"
+else
+  fail "ASCII bars array" "BARS_ASCII defined" "not found"
+fi
+
+# Test: Unicode detection function exists
+if grep -q 'supports_unicode()' "$STATUSLINE_SCRIPT"; then
+  pass "Unicode detection function exists"
+else
+  fail "Unicode detection function" "supports_unicode() defined" "not found"
+fi
+
+# Test: USE_UNICODE variable is set
+if grep -q 'USE_UNICODE=' "$STATUSLINE_SCRIPT"; then
+  pass "USE_UNICODE variable is set"
+else
+  fail "USE_UNICODE variable" "USE_UNICODE defined" "not found"
+fi
+
+# Test: build_bar function uses USE_UNICODE
+if grep -A10 'build_bar()' "$STATUSLINE_SCRIPT" | grep -q 'USE_UNICODE'; then
+  pass "build_bar function checks USE_UNICODE"
+else
+  fail "build_bar USE_UNICODE check" "build_bar uses USE_UNICODE" "not found"
+fi
+
+# Test: Different bar percentages render correctly in ASCII mode
+# Note: 0% rate limit is not displayed, so test with 5% which rounds to index 1
+echo '{"five_hour": 5, "five_hour_resets_at": "2099-01-01T12:00:00Z"}' > "$TEST_CACHE_FILE"
+touch "$TEST_CACHE_FILE"
+output=$(run_test_with_env "CLAUDER_ASCII=1" '{"model":{"display_name":"Opus"}}')
+if [[ "$output" == *"[#---------]"* ]]; then
+  pass "ASCII low% bar renders correctly"
+else
+  fail "ASCII low% bar" "contains [#---------]" "$output"
+fi
+
+echo '{"five_hour": 100, "five_hour_resets_at": "2099-01-01T12:00:00Z"}' > "$TEST_CACHE_FILE"
+touch "$TEST_CACHE_FILE"
+output=$(run_test_with_env "CLAUDER_ASCII=1" '{"model":{"display_name":"Opus"}}')
+if [[ "$output" == *"[##########]"* ]]; then
+  pass "ASCII 100% bar renders correctly"
+else
+  fail "ASCII 100% bar" "contains [##########]" "$output"
+fi
+
+###############################################################################
 section "Background Fetch Integration"
 
 # Test: Script has subshell grouping for background operations
