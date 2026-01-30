@@ -1,16 +1,17 @@
+import * as vscode from 'vscode';
+
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import * as vscode from 'vscode';
 
-import type { CombinedUsage } from '~/status-bar';
-import { StatusBarManager } from '~/status-bar';
+import { ConfigCache } from '~/config';
 import { computeResumeDelay, getLimitReset, shouldRemainPaused } from '~/limit';
 import type { LimitReset } from '~/limit';
+import { SoundPlayer } from '~/sound';
 import type { PlanType, StatusDisplayType } from '~/types';
-import { UsageApiClient } from '~/usage-api';
-import { UsageTracker } from '~/usage-tracker';
-import { SoundPlayer } from '~/sound-player';
+import type { CombinedUsage } from '~/ui';
+import { StatusBarManager } from '~/ui';
+import { UsageApiClient, UsageTracker } from '~/usage';
 
 const SHELL_INTEGRATION_PROMPTED_KEY = 'shellIntegrationPrompted';
 const SCRIPT_UPDATE_PROMPTED_KEY = 'scriptUpdatePrompted_v1';
@@ -24,10 +25,40 @@ let refreshInterval: NodeJS.Timeout | undefined;
 let limitReset: LimitReset | null = null;
 let limitResumeTimeout: NodeJS.Timeout | undefined;
 let countdownInterval: NodeJS.Timeout | undefined;
-let extensionContext: vscode.ExtensionContext;
+let authPromptedThisSession = false;
+
+interface ClauderConfig {
+  plan: PlanType;
+  weeklyThreshold: number;
+  refreshInterval: number;
+  statusDisplay: StatusDisplayType;
+  showProgress: boolean;
+}
+
+let configCache: ConfigCache<ClauderConfig> | null = null;
+
+function getClauderConfig(): ClauderConfig {
+  if (!configCache) {
+    configCache = new ConfigCache(() => {
+      const config = vscode.workspace.getConfiguration('clauder');
+      return {
+        plan: config.get<PlanType>('plan', 'pro'),
+        weeklyThreshold: config.get<number>('weeklyHighlightThreshold', 90),
+        refreshInterval: config.get<number>('refreshInterval', 30),
+        statusDisplay: config.get<StatusDisplayType>('statusDisplay', 'both'),
+        showProgress: config.get<boolean>('showProgress', true),
+      };
+    }, 10_000);
+  }
+  return configCache.get();
+}
+
+function invalidateConfigCache(): void {
+  configCache?.invalidate();
+  soundPlayer?.invalidateConfigCache();
+}
 
 export function activate(context: vscode.ExtensionContext) {
-  extensionContext = context;
   statusBarManager = new StatusBarManager();
   usageApiClient = new UsageApiClient();
   usageTracker = new UsageTracker();
@@ -45,21 +76,26 @@ export function activate(context: vscode.ExtensionContext) {
   const toggleProgressCommand = vscode.commands.registerCommand(
     'clauder.toggleProgress',
     async () => {
-      const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+      const claudeDir = path.join(os.homedir(), '.claude');
+      const settingsPath = path.join(claudeDir, 'settings.json');
       try {
-        const content = fs.readFileSync(settingsPath, 'utf-8');
-        const settings = JSON.parse(content);
+        if (!fs.existsSync(claudeDir)) {
+          fs.mkdirSync(claudeDir, { recursive: true });
+        }
+
+        let settings: Record<string, unknown> = {};
+        if (fs.existsSync(settingsPath)) {
+          const content = fs.readFileSync(settingsPath, 'utf-8');
+          settings = JSON.parse(content);
+        }
 
         if (settings.statusLine) {
-          // Disable: store current config and remove
           settings._statusLineBackup = settings.statusLine;
           delete settings.statusLine;
         } else if (settings._statusLineBackup) {
-          // Restore from backup
           settings.statusLine = settings._statusLineBackup;
           delete settings._statusLineBackup;
         } else {
-          // No backup, create default
           settings.statusLine = {
             type: 'command',
             command: 'bash ~/.claude/statusline-command.sh',
@@ -76,22 +112,18 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
-  const syncSoundsCommand = vscode.commands.registerCommand(
-    'clauder.syncSoundSettings',
-    () => syncSoundSettings()
+  const syncSoundsCommand = vscode.commands.registerCommand('clauder.syncSoundSettings', () =>
+    syncSoundSettings()
   );
 
-  const toggleSoundsCommand = vscode.commands.registerCommand(
-    'clauder.toggleSounds',
-    async () => {
-      const config = vscode.workspace.getConfiguration('clauder.sounds');
-      const currentEnabled = config.get<boolean>('enabled', true);
-      await config.update('enabled', !currentEnabled, vscode.ConfigurationTarget.Global);
-      vscode.window.showInformationMessage(
-        `Sound notifications ${!currentEnabled ? 'enabled' : 'disabled'}`
-      );
-    }
-  );
+  const toggleSoundsCommand = vscode.commands.registerCommand('clauder.toggleSounds', async () => {
+    const config = vscode.workspace.getConfiguration('clauder.sounds');
+    const currentEnabled = config.get<boolean>('enabled', true);
+    await config.update('enabled', !currentEnabled, vscode.ConfigurationTarget.Global);
+    vscode.window.showInformationMessage(
+      `Sound notifications ${!currentEnabled ? 'enabled' : 'disabled'}`
+    );
+  });
 
   context.subscriptions.push(
     refreshCommand,
@@ -100,19 +132,22 @@ export function activate(context: vscode.ExtensionContext) {
     syncSoundsCommand,
     toggleSoundsCommand,
     {
-    dispose: () => {
-      statusBarManager.dispose();
-      stopRefreshInterval();
-    },
-  });
+      dispose: () => {
+        statusBarManager.dispose();
+        stopRefreshInterval();
+      },
+    }
+  );
 
   const configListener = vscode.workspace.onDidChangeConfiguration((e) => {
     if (e.affectsConfiguration('clauder')) {
+      invalidateConfigCache();
       setupRefreshInterval();
       updateStatusDisplay();
       updateStatusBar();
     }
     if (e.affectsConfiguration('clauder.sounds')) {
+      invalidateConfigCache();
       syncSoundSettings();
     }
   });
@@ -126,14 +161,13 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 async function updateStatusBar(): Promise<void> {
-  if (limitReset && !shouldRemainPaused(limitReset)) {
+  if (limitReset) {
+    if (shouldRemainPaused(limitReset)) {
+      statusBarManager.showLimitReached(limitReset);
+      return;
+    }
     clearLimitPause();
     setupRefreshInterval();
-  }
-
-  if (shouldRemainPaused(limitReset)) {
-    statusBarManager.showLimitReached(limitReset!);
-    return;
   }
 
   try {
@@ -152,13 +186,13 @@ async function updateStatusBar(): Promise<void> {
       return;
     }
 
+    authPromptedThisSession = false;
+
     let localData = null;
     try {
-      const config = vscode.workspace.getConfiguration('clauder');
-      const plan = config.get<PlanType>('plan', 'pro');
-      const weeklyThreshold = config.get<number>('weeklyHighlightThreshold', 90);
-      statusBarManager.setWeeklyThreshold(weeklyThreshold);
-      localData = await usageTracker.calculateUsage(plan);
+      const config = getClauderConfig();
+      statusBarManager.setWeeklyThreshold(config.weeklyThreshold);
+      localData = await usageTracker.calculateUsage(config.plan);
     } catch {
       console.log('[Clauder] Local data fetch failed, continuing with API only');
     }
@@ -192,6 +226,11 @@ async function updateStatusBar(): Promise<void> {
 }
 
 async function promptForAuthentication(): Promise<void> {
+  if (authPromptedThisSession) {
+    return;
+  }
+  authPromptedThisSession = true;
+
   const action = await vscode.window.showInformationMessage(
     'Claude Code credentials not found. Please authenticate to see usage data.',
     'Authenticate'
@@ -211,10 +250,8 @@ function setupRefreshInterval(): void {
     return;
   }
 
-  const config = vscode.workspace.getConfiguration('clauder');
-  const intervalSeconds = config.get<number>('refreshInterval', 30);
-
-  refreshInterval = setInterval(() => updateStatusBar(), intervalSeconds * 1000);
+  const config = getClauderConfig();
+  refreshInterval = setInterval(() => updateStatusBar(), config.refreshInterval * 1000);
 }
 
 function stopRefreshInterval(): void {
@@ -241,10 +278,8 @@ function stopCountdownInterval(): void {
 }
 
 function updateStatusDisplay(): void {
-  const config = vscode.workspace.getConfiguration('clauder');
-  const statusDisplay = config.get<StatusDisplayType>('statusDisplay', 'both');
-  const showProgress = config.get<boolean>('showProgress', true);
-  statusBarManager.setVisible(statusDisplay !== 'shell' && showProgress);
+  const config = getClauderConfig();
+  statusBarManager.setVisible(config.statusDisplay !== 'shell' && config.showProgress);
 }
 
 async function installShellIntegration(): Promise<void> {
@@ -269,10 +304,11 @@ async function promptShellIntegration(context: vscode.ExtensionContext): Promise
     "Don't Show Again"
   );
 
-  await context.globalState.update(SHELL_INTEGRATION_PROMPTED_KEY, true);
-
   if (action === 'Install Shell Integration') {
     await installShellIntegration();
+    await context.globalState.update(SHELL_INTEGRATION_PROMPTED_KEY, true);
+  } else if (action === "Don't Show Again") {
+    await context.globalState.update(SHELL_INTEGRATION_PROMPTED_KEY, true);
   }
 }
 
@@ -335,14 +371,12 @@ function syncSoundSettings(): void {
   }
 }
 
-export function getSoundPlayer(): SoundPlayer {
-  return soundPlayer;
-}
-
 export function deactivate() {
   clearLimitPause();
   stopRefreshInterval();
   stopCountdownInterval();
+  authPromptedThisSession = false;
+  configCache = null;
 }
 
 function scheduleLimitResume(limit: LimitReset): void {
@@ -375,4 +409,5 @@ function clearLimitPause(): void {
   limitReset = null;
   clearLimitResumeTimeout();
   stopCountdownInterval();
+  soundPlayer?.resetThresholdState();
 }

@@ -1,4 +1,6 @@
+import { calculateCost, getEntryTokens, getModelFamily, getWeekBoundaries } from './utils';
 import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import * as readline from 'readline';
@@ -10,13 +12,13 @@ import type {
   PlanType,
   ProjectBreakdown,
   ProjectUsage,
-  SessionEntry,
   SessionEntryWithCwd,
   UsageRate,
   UsageSummary,
 } from '~/types';
 import { MODEL_PRICING, PLAN_LIMITS, TOKENS_PER_HOUR_ESTIMATE, WINDOW_DURATION_MS } from '~/types';
-import { calculateCost, getEntryTokens, getModelFamily, getWeekBoundaries } from '~/usage-utils';
+
+export type EntryWithParsedTime = SessionEntryWithCwd & { _tsMs: number };
 
 export class UsageTracker {
   private claudeDataPath: string;
@@ -28,9 +30,12 @@ export class UsageTracker {
   async calculateUsage(plan: PlanType): Promise<UsageSummary> {
     const entries = await this.getAllUsageEntries();
     const now = new Date();
+    const nowMs = now.getTime();
     const windowStart = this.getWindowStart(entries, now);
-    const windowEnd = new Date(windowStart.getTime() + WINDOW_DURATION_MS);
+    const windowStartMs = windowStart.getTime();
+    const windowEnd = new Date(windowStartMs + WINDOW_DURATION_MS);
     const { weekStart, weekEnd } = getWeekBoundaries(now);
+    const weekStartMs = weekStart.getTime();
 
     let windowTokens = 0;
     let weeklyTokens = 0;
@@ -45,18 +50,18 @@ export class UsageTracker {
     };
 
     for (const entry of entries) {
-      const timestamp = new Date(entry.timestamp);
+      const tsMs = entry._tsMs;
       const tokens = getEntryTokens(entry);
       const inputTokens = entry.message?.usage?.input_tokens || 0;
       const outputTokens = entry.message?.usage?.output_tokens || 0;
       const family = getModelFamily(entry.message?.model);
 
-      if (timestamp >= windowStart && timestamp <= now) {
+      if (tsMs >= windowStartMs && tsMs <= nowMs) {
         windowTokens += tokens;
         windowEntryCount++;
       }
 
-      if (timestamp >= weekStart && timestamp <= now) {
+      if (tsMs >= weekStartMs && tsMs <= nowMs) {
         weeklyTokens += tokens;
         weekEntryCount++;
 
@@ -87,7 +92,13 @@ export class UsageTracker {
 
     const projectBreakdown = calculateProjectBreakdown(entries, weekStart, now);
     const usageRate = calculateUsageRate(entries, now);
-    const prediction = calculatePredictions(usageRate, windowPercentage, weeklyPercentage, plan, now);
+    const prediction = calculatePredictions(
+      usageRate,
+      windowPercentage,
+      weeklyPercentage,
+      plan,
+      now
+    );
 
     const result: UsageSummary = {
       windowTokens,
@@ -110,68 +121,79 @@ export class UsageTracker {
     return result;
   }
 
-  private getWindowStart(entries: SessionEntryWithCwd[], now: Date): Date {
+  private getWindowStart(entries: EntryWithParsedTime[], now: Date): Date {
     const windowAgo = new Date(now.getTime() - WINDOW_DURATION_MS);
+    const windowAgoMs = windowAgo.getTime();
 
-    const recentEntries = entries
-      .filter((e) => new Date(e.timestamp) >= windowAgo)
-      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-
-    if (recentEntries.length > 0) {
-      return new Date(recentEntries[0].timestamp);
-    }
-
-    return windowAgo;
-  }
-
-  private async getAllUsageEntries(): Promise<SessionEntryWithCwd[]> {
-    const entries: SessionEntryWithCwd[] = [];
-
-    if (!fs.existsSync(this.claudeDataPath)) {
-      return entries;
-    }
-
-    const jsonlFiles = this.findJsonlFiles(this.claudeDataPath);
-
-    const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    let filesProcessed = 0;
-    let filesSkipped = 0;
-
-    for (const filePath of jsonlFiles) {
-      try {
-        const stat = fs.statSync(filePath);
-        if (stat.mtime < oneWeekAgo) {
-          filesSkipped++;
-          continue;
-        }
-
-        const fileEntries = await this.parseJsonlFile(filePath);
-        entries.push(...fileEntries);
-        filesProcessed++;
-      } catch {
-        continue;
+    // Single-pass: find minimum timestamp >= windowAgoMs
+    let minTs = Infinity;
+    for (const entry of entries) {
+      if (entry._tsMs >= windowAgoMs && entry._tsMs < minTs) {
+        minTs = entry._tsMs;
       }
     }
 
+    return minTs !== Infinity ? new Date(minTs) : windowAgo;
+  }
+
+  private async getAllUsageEntries(): Promise<EntryWithParsedTime[]> {
+    try {
+      await fsp.access(this.claudeDataPath);
+    } catch {
+      return [];
+    }
+
+    const jsonlFiles = await this.findJsonlFiles(this.claudeDataPath);
+    const oneWeekAgoMs = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    let filesProcessed = 0;
+    let filesSkipped = 0;
+
+    const fileStats = await Promise.all(
+      jsonlFiles.map(async (filePath) => {
+        try {
+          const stat = await fsp.stat(filePath);
+          return { filePath, mtime: stat.mtime.getTime() };
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    const recentFiles = fileStats.filter(
+      (f): f is { filePath: string; mtime: number } => f !== null && f.mtime >= oneWeekAgoMs
+    );
+    filesSkipped = jsonlFiles.length - recentFiles.length;
+
+    const allEntries = await Promise.all(
+      recentFiles.map(({ filePath }) => this.parseJsonlFile(filePath))
+    );
+    filesProcessed = recentFiles.length;
+
+    const entries = allEntries.flat();
     console.log('[Clauder] Files processed:', filesProcessed, ', skipped (old):', filesSkipped);
     return entries;
   }
 
-  private findJsonlFiles(dir: string): string[] {
+  private async findJsonlFiles(dir: string): Promise<string[]> {
     const files: string[] = [];
 
     try {
-      const items = fs.readdirSync(dir);
+      const items = await fsp.readdir(dir, { withFileTypes: true });
+
+      const subDirPromises: Promise<string[]>[] = [];
 
       for (const item of items) {
-        const fullPath = path.join(dir, item);
-        const stat = fs.statSync(fullPath);
-
-        if (stat.isDirectory()) {
-          files.push(...this.findJsonlFiles(fullPath));
-        } else if (item.endsWith('.jsonl')) {
+        const fullPath = path.join(dir, item.name);
+        if (item.isDirectory()) {
+          subDirPromises.push(this.findJsonlFiles(fullPath));
+        } else if (item.name.endsWith('.jsonl')) {
           files.push(fullPath);
         }
+      }
+
+      const subDirFiles = await Promise.all(subDirPromises);
+      for (const subFiles of subDirFiles) {
+        files.push(...subFiles);
       }
     } catch {
       return files;
@@ -180,8 +202,8 @@ export class UsageTracker {
     return files;
   }
 
-  private async parseJsonlFile(filePath: string): Promise<SessionEntryWithCwd[]> {
-    const entries: SessionEntryWithCwd[] = [];
+  private async parseJsonlFile(filePath: string): Promise<EntryWithParsedTime[]> {
+    const entries: EntryWithParsedTime[] = [];
 
     return new Promise((resolve) => {
       const stream = fs.createReadStream(filePath, { encoding: 'utf8' });
@@ -191,11 +213,9 @@ export class UsageTracker {
         try {
           const entry = JSON.parse(line) as SessionEntryWithCwd;
           if (entry.message?.usage) {
-            entries.push(entry);
+            entries.push({ ...entry, _tsMs: new Date(entry.timestamp).getTime() });
           }
-        } catch {
-          // Skip invalid JSON lines
-        }
+        } catch {}
       });
 
       rl.on('close', () => resolve(entries));
@@ -205,24 +225,38 @@ export class UsageTracker {
 }
 
 export function calculateProjectBreakdown(
-  entries: SessionEntryWithCwd[],
+  entries: (SessionEntryWithCwd | EntryWithParsedTime)[],
   weekStart: Date,
   now: Date
 ): ProjectBreakdown {
   const projectMap = new Map<string, ProjectUsage>();
+  const basenameCache = new Map<string, string>();
+  const weekStartMs = weekStart.getTime();
+  const nowMs = now.getTime();
 
   for (const entry of entries) {
-    const timestamp = new Date(entry.timestamp);
-    if (timestamp < weekStart || timestamp > now) continue;
+    const timestamp = '_tsMs' in entry ? entry._tsMs : new Date(entry.timestamp).getTime();
+    if (timestamp < weekStartMs || timestamp > nowMs) continue;
 
     const projectPath = entry.cwd || 'Unknown';
-    const projectName = projectPath === 'Unknown' ? 'Unknown' : path.basename(projectPath) || 'Unknown';
+
+    let projectName = basenameCache.get(projectPath);
+    if (projectName === undefined) {
+      projectName = projectPath === 'Unknown' ? 'Unknown' : path.basename(projectPath) || 'Unknown';
+      basenameCache.set(projectPath, projectName);
+    }
+
     const inputTokens = entry.message?.usage?.input_tokens || 0;
     const outputTokens = entry.message?.usage?.output_tokens || 0;
     const totalTokens = inputTokens + outputTokens;
     const family = getModelFamily(entry.message?.model);
     const pricing = MODEL_PRICING[family];
-    const cost = calculateCost(inputTokens, outputTokens, pricing.inputPerMTok, pricing.outputPerMTok);
+    const cost = calculateCost(
+      inputTokens,
+      outputTokens,
+      pricing.inputPerMTok,
+      pricing.outputPerMTok
+    );
 
     const existing = projectMap.get(projectPath);
     if (existing) {
@@ -265,23 +299,24 @@ export function calculateProjectBreakdown(
 const DEFAULT_RATE_WINDOW_MS = 60 * 60 * 1000;
 
 export function calculateUsageRate(
-  entries: SessionEntryWithCwd[],
+  entries: (SessionEntryWithCwd | EntryWithParsedTime)[],
   now: Date,
   sampleWindowMs: number = DEFAULT_RATE_WINDOW_MS
 ): UsageRate {
-  const windowStart = new Date(now.getTime() - sampleWindowMs);
+  const nowMs = now.getTime();
+  const windowStartMs = nowMs - sampleWindowMs;
   let sampleTokens = 0;
-  let oldestEntryTime = now.getTime();
+  let oldestEntryTime = nowMs;
 
   for (const entry of entries) {
-    const timestamp = new Date(entry.timestamp);
-    if (timestamp < windowStart || timestamp > now) continue;
+    const timestamp = '_tsMs' in entry ? entry._tsMs : new Date(entry.timestamp).getTime();
+    if (timestamp < windowStartMs || timestamp > nowMs) continue;
 
     const tokens = getEntryTokens(entry);
     sampleTokens += tokens;
 
-    if (timestamp.getTime() < oldestEntryTime) {
-      oldestEntryTime = timestamp.getTime();
+    if (timestamp < oldestEntryTime) {
+      oldestEntryTime = timestamp;
     }
   }
 
@@ -289,7 +324,7 @@ export function calculateUsageRate(
     return { tokensPerHour: 0, sampleWindowMs, sampleTokens: 0 };
   }
 
-  const elapsedMs = now.getTime() - oldestEntryTime;
+  const elapsedMs = nowMs - oldestEntryTime;
   const tokensPerHour = elapsedMs > 0 ? (sampleTokens / elapsedMs) * 3600000 : 0;
 
   return { tokensPerHour, sampleWindowMs, sampleTokens };

@@ -1,20 +1,31 @@
+import * as vscode from 'vscode';
+
+import { formatResetDay, formatTimeRemaining, formatTokens, getUsageColor } from './formatters';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import * as vscode from 'vscode';
 
-import {
-  formatResetDay,
-  formatTimeRemaining,
-  formatTokens,
-  getUsageColor,
-} from '~/formatters';
+import { ConfigCache } from '~/config/cache';
 import { DEFAULT_WEEKLY_ALERT_THRESHOLD, shouldHighlightWeekly } from '~/limit';
-import type { LimitReset } from '~/limit';
-import type { UsageSummary } from '~/types';
-import type { UsageData } from '~/usage-api';
+import type { LimitKind, LimitReset } from '~/limit';
+import type { ProjectBreakdown, UsageSummary } from '~/types';
+import type { UsageData } from '~/usage';
+
+const SHELL_SETTINGS_CACHE_TTL = 30_000;
 
 const CLAUDE_ORANGE = '#E8956A';
+
+const LIMIT_LABELS: Record<LimitKind, string> = {
+  session: '5h limit reached',
+  weeklyAll: 'Weekly limit reached',
+  weeklySonnet: 'Weekly Sonnet limit reached',
+};
+
+const LIMIT_TOOLTIPS: Record<LimitKind, (resetDisplay: string, timeRemaining: string) => string> = {
+  session: (_reset, time) => `You hit 100% of your 5-hour window. Resets in ${time}.`,
+  weeklyAll: (reset) => `You hit 100% of your weekly limit. Resets ${reset}.`,
+  weeklySonnet: (reset) => `You hit 100% of your weekly Sonnet limit. Resets ${reset}.`,
+};
 
 function styledHeading(text: string): string {
   return `<strong><span style="color:${CLAUDE_ORANGE};">${text}</span></strong>`;
@@ -30,11 +41,23 @@ export class StatusBarManager {
   private cachedUsage: CombinedUsage | null = null;
   private weeklyThreshold = DEFAULT_WEEKLY_ALERT_THRESHOLD;
   private lastStatusText: string | null = null;
+  private shellSettingsCache: ConfigCache<boolean>;
 
   constructor() {
     this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     this.statusBarItem.command = 'clauder.refresh';
     this.statusBarItem.show();
+
+    this.shellSettingsCache = new ConfigCache<boolean>(() => {
+      try {
+        const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+        const content = fs.readFileSync(settingsPath, 'utf-8');
+        const settings = JSON.parse(content);
+        return !!settings.statusLine;
+      } catch {
+        return false;
+      }
+    }, SHELL_SETTINGS_CACHE_TTL);
   }
 
   setWeeklyThreshold(threshold: number): void {
@@ -84,22 +107,10 @@ export class StatusBarManager {
 
   showLimitReached(limit: LimitReset): void {
     const timeRemaining = formatTimeRemaining(limit.resetAt);
-    const resetDisplay =
-      limit.kind === 'session' ? timeRemaining : formatResetDay(limit.resetAt);
+    const resetDisplay = limit.kind === 'session' ? timeRemaining : formatResetDay(limit.resetAt);
 
-    const label =
-      limit.kind === 'session'
-        ? '5h limit reached'
-        : limit.kind === 'weeklyAll'
-          ? 'Weekly limit reached'
-          : 'Weekly Sonnet limit reached';
-
-    const tooltipText =
-      limit.kind === 'session'
-        ? `You hit 100% of your 5-hour window. Resets in ${timeRemaining}.`
-        : limit.kind === 'weeklyAll'
-          ? `You hit 100% of your weekly limit. Resets ${resetDisplay}.`
-          : `You hit 100% of your weekly Sonnet limit. Resets ${resetDisplay}.`;
+    const label = LIMIT_LABELS[limit.kind];
+    const tooltipText = LIMIT_TOOLTIPS[limit.kind](resetDisplay, timeRemaining);
 
     this.setStatusText(`$(error) ${label} | resets in ${timeRemaining}`);
     this.statusBarItem.tooltip = tooltipText;
@@ -161,35 +172,25 @@ export class StatusBarManager {
       hasContent = true;
     };
 
-    // Weekly (All Models) - compact format
     appendSeparator();
     const weeklyReset = api.weeklyAll.resetsAt
       ? ` · ${formatResetDay(api.weeklyAll.resetsAt)}`
       : '';
     md.appendMarkdown(`**Weekly:** ${Math.round(api.weeklyAll.utilization)}%${weeklyReset}\n\n`);
 
-    // Weekly (Sonnet) - compact format
     if (api.weeklySonnet) {
       const sonnetReset = api.weeklySonnet.resetsAt
         ? ` · ${formatResetDay(api.weeklySonnet.resetsAt)}`
         : '';
-      md.appendMarkdown(`**Sonnet:** ${Math.round(api.weeklySonnet.utilization)}%${sonnetReset}\n\n`);
+      md.appendMarkdown(
+        `**Sonnet:** ${Math.round(api.weeklySonnet.utilization)}%${sonnetReset}\n\n`
+      );
     }
 
     if (local?.projectBreakdown && local.projectBreakdown.projects.length > 0) {
       appendSeparator();
       md.appendMarkdown(`${styledHeading('Usage by Project (Week)')}\n\n`);
-      const maxDisplay = 5;
-      const projects = local.projectBreakdown.projects;
-      for (let i = 0; i < Math.min(maxDisplay, projects.length); i++) {
-        const project = projects[i];
-        md.appendMarkdown(
-          `${project.projectName}: ${formatTokens(project.totalTokens)} (${Math.round(project.percentage)}%)\n\n`
-        );
-      }
-      if (projects.length > maxDisplay) {
-        md.appendMarkdown(`_+ ${projects.length - maxDisplay} more projects_\n\n`);
-      }
+      this.appendProjectBreakdown(md, local.projectBreakdown);
     }
 
     if (!hasContent) {
@@ -217,27 +218,15 @@ export class StatusBarManager {
 
     md.appendMarkdown('---\n\n');
 
-    // Current Session - compact format
     const sessionReset = ` · ${formatTimeRemaining(usage.windowEndTime)}`;
     md.appendMarkdown(`**Session:** ~${Math.round(usage.windowPercentage)}%${sessionReset}\n\n`);
 
-    // Weekly (CLI only) - compact format
     md.appendMarkdown(`**Weekly:** ~${Math.round(usage.weeklyPercentage)}%\n\n`);
 
     if (usage.projectBreakdown && usage.projectBreakdown.projects.length > 0) {
       md.appendMarkdown('---\n\n');
       md.appendMarkdown(`${styledHeading('Usage by Project (Week)')}\n\n`);
-      const maxDisplay = 5;
-      const projects = usage.projectBreakdown.projects;
-      for (let i = 0; i < Math.min(maxDisplay, projects.length); i++) {
-        const project = projects[i];
-        md.appendMarkdown(
-          `${project.projectName}: ${formatTokens(project.totalTokens)} (${Math.round(project.percentage)}%)\n\n`
-        );
-      }
-      if (projects.length > maxDisplay) {
-        md.appendMarkdown(`_+ ${projects.length - maxDisplay} more projects_\n\n`);
-      }
+      this.appendProjectBreakdown(md, usage.projectBreakdown);
     }
 
     this.appendQuickSettings(md);
@@ -249,16 +238,22 @@ export class StatusBarManager {
     return md;
   }
 
-  private appendQuickSettings(md: vscode.MarkdownString): void {
-    let shellEnabled = false;
-    try {
-      const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
-      const content = fs.readFileSync(settingsPath, 'utf-8');
-      const settings = JSON.parse(content);
-      shellEnabled = !!settings.statusLine;
-    } catch {
-      // Settings file doesn't exist or can't be read
+  private appendProjectBreakdown(md: vscode.MarkdownString, breakdown: ProjectBreakdown): void {
+    const maxDisplay = 5;
+    const projects = breakdown.projects;
+    for (let i = 0; i < Math.min(maxDisplay, projects.length); i++) {
+      const project = projects[i];
+      md.appendMarkdown(
+        `${project.projectName}: ${formatTokens(project.totalTokens)} (${Math.round(project.percentage)}%)\n\n`
+      );
     }
+    if (projects.length > maxDisplay) {
+      md.appendMarkdown(`_+ ${projects.length - maxDisplay} more projects_\n\n`);
+    }
+  }
+
+  private appendQuickSettings(md: vscode.MarkdownString): void {
+    const shellEnabled = this.shellSettingsCache.get();
     const shellIcon = shellEnabled ? '$(check)' : '$(circle-outline)';
 
     md.appendMarkdown('---\n\n');

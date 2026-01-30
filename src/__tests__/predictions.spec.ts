@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { SessionEntryWithCwd } from '~/types';
-import { calculatePredictions, calculateUsageRate } from '~/usage-tracker';
+import { calculatePredictions, calculateUsageRate } from '~/usage';
 
 describe('calculateUsageRate', () => {
   it('calculates tokens per hour from 1-hour window', () => {

@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  computeResumeDelay,
   DEFAULT_WEEKLY_ALERT_THRESHOLD,
+  computeResumeDelay,
   getLimitReset,
   shouldHighlightWeekly,
   shouldRemainPaused,
 } from '~/limit';
-import { StatusBarManager } from '~/status-bar';
 import type { UsageSummary } from '~/types';
+import { StatusBarManager } from '~/ui';
 
 vi.mock('vscode', () => {
   const items: any[] = [];
@@ -244,4 +244,3 @@ describe('getLimitReset weeklySonnet edge case', () => {
     expect(getLimitReset(usage)).toEqual({ kind: 'weeklySonnet', resetAt });
   });
 });
-

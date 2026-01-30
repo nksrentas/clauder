@@ -1,8 +1,10 @@
 import { exec } from 'child_process';
-import * as https from 'https';
 import * as fs from 'fs';
+import * as https from 'https';
 import * as os from 'os';
 import * as path from 'path';
+
+import { FETCH_STATUS, KEYCHAIN_SERVICE, PLATFORM } from '~/types';
 
 export type UsageLimit = {
   utilization: number;
@@ -22,9 +24,9 @@ export type UsageData = {
 };
 
 export type FetchResult =
-  | { status: 'success'; data: UsageData }
-  | { status: 'no_token' }
-  | { status: 'error'; message: string };
+  | { status: typeof FETCH_STATUS.SUCCESS; data: UsageData }
+  | { status: typeof FETCH_STATUS.NO_TOKEN }
+  | { status: typeof FETCH_STATUS.ERROR; message: string };
 
 export function parseOAuthResponse(response: OAuthUsageResponse): UsageData {
   return {
@@ -48,22 +50,20 @@ export function parseOAuthResponse(response: OAuthUsageResponse): UsageData {
 }
 
 export class UsageApiClient {
-  private static readonly KEYCHAIN_SERVICE = 'Claude Code-credentials';
-
   async fetchUsage(): Promise<FetchResult> {
     try {
       const token = await this.getOAuthToken();
       if (!token) {
         console.log('[Clauder] No OAuth token found');
-        return { status: 'no_token' };
+        return { status: FETCH_STATUS.NO_TOKEN };
       }
 
       const response = await this.callApi(token);
-      return { status: 'success', data: parseOAuthResponse(response) };
+      return { status: FETCH_STATUS.SUCCESS, data: parseOAuthResponse(response) };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       console.error('[Clauder] API error:', error);
-      return { status: 'error', message };
+      return { status: FETCH_STATUS.ERROR, message };
     }
   }
 
@@ -71,7 +71,6 @@ export class UsageApiClient {
     return new Promise((resolve) => {
       const command = this.getKeychainCommand();
       if (!command) {
-        // No keychain command for this platform, try fallbacks
         this.tryFallbacks(resolve);
         return;
       }
@@ -93,14 +92,12 @@ export class UsageApiClient {
           console.log('[Clauder] Keychain access failed:', error.message);
         }
 
-        // Keychain failed or had no token, try fallbacks
         this.tryFallbacks(resolve);
       });
     });
   }
 
   private tryFallbacks(resolve: (token: string | null) => void): void {
-    // Fallback 1: Check CLAUDE_CODE_API_KEY environment variable
     const envToken = process.env.CLAUDE_CODE_API_KEY;
     if (envToken && envToken.trim()) {
       console.log('[Clauder] Using token from CLAUDE_CODE_API_KEY');
@@ -108,7 +105,6 @@ export class UsageApiClient {
       return;
     }
 
-    // Fallback 2: Try to read from ~/.claude/.credentials.json
     const credentialsPath = path.join(os.homedir(), '.claude', '.credentials.json');
     try {
       if (fs.existsSync(credentialsPath)) {
@@ -123,7 +119,10 @@ export class UsageApiClient {
         }
       }
     } catch (readError) {
-      console.log('[Clauder] Failed to read credentials file:', readError instanceof Error ? readError.message : 'Unknown error');
+      console.log(
+        '[Clauder] Failed to read credentials file:',
+        readError instanceof Error ? readError.message : 'Unknown error'
+      );
     }
 
     console.log('[Clauder] No OAuth token found');
@@ -131,16 +130,13 @@ export class UsageApiClient {
   }
 
   private getKeychainCommand(): string | null {
-    const service = UsageApiClient.KEYCHAIN_SERVICE;
-
     switch (process.platform) {
-      case 'darwin':
-        return `security find-generic-password -s "${service}" -w`;
-      case 'win32':
-        // PowerShell command to read from Windows Credential Manager using CredRead API
-        return `powershell -Command "$cred = Get-StoredCredential -Target '${service}' -AsCredentialObject; if ($cred) { $cred.Password } else { exit 1 }"`;
-      case 'linux':
-        return `secret-tool lookup service "${service}"`;
+      case PLATFORM.DARWIN:
+        return `security find-generic-password -s "${KEYCHAIN_SERVICE}" -w`;
+      case PLATFORM.WIN32:
+        return `powershell -Command "$cred = Get-StoredCredential -Target '${KEYCHAIN_SERVICE}' -AsCredentialObject; if ($cred) { $cred.Password } else { exit 1 }"`;
+      case PLATFORM.LINUX:
+        return `secret-tool lookup service "${KEYCHAIN_SERVICE}"`;
       default:
         return null;
     }
@@ -162,7 +158,12 @@ export class UsageApiClient {
         (res) => {
           let data = '';
           res.on('data', (chunk) => (data += chunk));
+          res.on('error', reject);
           res.on('end', () => {
+            if (res.statusCode && res.statusCode >= 400) {
+              reject(new Error(`API request failed with status ${res.statusCode}`));
+              return;
+            }
             try {
               const parsed = JSON.parse(data) as OAuthUsageResponse;
               resolve(parsed);

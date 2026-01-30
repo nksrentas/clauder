@@ -1,23 +1,33 @@
-export function formatTimeRemaining(endTime: Date, now: Date = new Date()): string {
-  const diff = endTime.getTime() - now.getTime();
+function formatDurationMs(
+  ms: number,
+  options: { prefix?: string; alwaysShowMinutes?: boolean } = {}
+): string {
+  const { prefix = '', alwaysShowMinutes = false } = options;
 
-  if (diff <= 0) {
+  if (ms <= 0) {
     return 'now';
   }
 
-  const hours = Math.floor(diff / (1000 * 60 * 60));
-  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+  const hours = Math.floor(ms / (1000 * 60 * 60));
+  const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
 
   if (hours > 24) {
     const days = Math.floor(hours / 24);
-    return `${days}d ${hours % 24}h`;
+    return `${prefix}${days}d ${hours % 24}h`;
   }
 
   if (hours > 0) {
-    return `${hours}h ${minutes}m`;
+    if (alwaysShowMinutes || minutes > 0) {
+      return `${prefix}${hours}h ${minutes}m`;
+    }
+    return `${prefix}${hours}h`;
   }
 
-  return `${minutes}m`;
+  return `${prefix}${minutes}m`;
+}
+
+export function formatTimeRemaining(endTime: Date, now: Date = new Date()): string {
+  return formatDurationMs(endTime.getTime() - now.getTime(), { alwaysShowMinutes: true });
 }
 
 export function formatResetDay(date: Date): string {
@@ -64,21 +74,7 @@ export function capitalize(str: string): string {
 
 export function formatPredictionTime(ms: number | null): string {
   if (ms === null) return 'unknown';
-  if (ms <= 0) return 'now';
-
-  const hours = Math.floor(ms / (1000 * 60 * 60));
-  const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
-
-  if (hours > 24) {
-    const days = Math.floor(hours / 24);
-    return `~${days}d ${hours % 24}h`;
-  }
-
-  if (hours > 0) {
-    return minutes > 0 ? `~${hours}h ${minutes}m` : `~${hours}h`;
-  }
-
-  return `~${minutes}m`;
+  return formatDurationMs(ms, { prefix: '~' });
 }
 
 export function formatRate(tokensPerHour: number): string {

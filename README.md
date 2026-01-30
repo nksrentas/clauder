@@ -47,13 +47,13 @@ Add to `~/.claude/settings.json`:
 ◆ Opus 4.5 │ main* │ ctx:10% │ 30% ████████░░ 2h31m │ W:15% ████░░░░░░ Sat 2pm
 ```
 
-| Element | Description |
-|---------|-------------|
-| `◆ Opus 4.5` | Current model with Claude diamond icon |
-| `main*` | Git branch (`*` indicates uncommitted changes) |
-| `ctx:10%` | Context window usage |
-| `30% ████████░░ 2h31m` | 5-hour rate limit: percentage, progress bar, time until reset |
-| `W:15% ████░░░░░░ Sat 2pm` | Weekly rate limit: percentage, progress bar, reset day/time |
+| Element                    | Description                                                   |
+| -------------------------- | ------------------------------------------------------------- |
+| `◆ Opus 4.5`               | Current model with Claude diamond icon                        |
+| `main*`                    | Git branch (`*` indicates uncommitted changes)                |
+| `ctx:10%`                  | Context window usage                                          |
+| `30% ████████░░ 2h31m`     | 5-hour rate limit: percentage, progress bar, time until reset |
+| `W:15% ████░░░░░░ Sat 2pm` | Weekly rate limit: percentage, progress bar, reset day/time   |
 
 ## VS Code Extension
 
@@ -64,20 +64,24 @@ A VS Code extension that displays your Claude Code usage in the status bar. Moni
 ### Features
 
 **Status Bar Display**
+
 - Shows your current 5-hour session usage with time until reset
 - Color-coded indicator that shifts from tan to red as usage increases
 - Automatically shows weekly usage when approaching your weekly limit
 
 **Limit Detection**
+
 - Alerts you when you hit the 5-hour or weekly limit
 - Automatically pauses polling and resumes when your limit resets
 
 **Detailed Tooltip**
+
 - Weekly usage for all models with reset day/time
 - Weekly Sonnet-only usage (if applicable)
 - Model breakdown with token counts and estimated costs
 
 **Sound Notifications**
+
 - Plays a sound when Claude Code finishes responding
 - Optional warning sounds when approaching rate limits
 - Toggle on/off via Command Palette or VS Code settings
@@ -109,14 +113,14 @@ Hover over the status bar item to see a breakdown of your weekly usage across al
 
 ### Configuration
 
-| Setting                            | Default | Description                                              |
-| ---------------------------------- | ------- | -------------------------------------------------------- |
-| `clauder.plan`                     | `pro`   | Your subscription plan: `pro`, `max5`, or `max20`        |
-| `clauder.refreshInterval`          | `30`    | Auto-refresh interval in seconds (5-300)                 |
+| Setting                            | Default | Description                                                |
+| ---------------------------------- | ------- | ---------------------------------------------------------- |
+| `clauder.plan`                     | `pro`   | Your subscription plan: `pro`, `max5`, or `max20`          |
+| `clauder.refreshInterval`          | `30`    | Auto-refresh interval in seconds (5-300)                   |
 | `clauder.weeklyHighlightThreshold` | `90`    | Show weekly usage in status bar when above this % (50-100) |
-| `clauder.sounds.enabled`           | `true`  | Enable/disable all sound notifications                   |
-| `clauder.sounds.promptCompletion`  | `true`  | Play sound when Claude Code finishes responding          |
-| `clauder.sounds.rateLimitWarning`  | `true`  | Play sound when approaching rate limits                  |
+| `clauder.sounds.enabled`           | `true`  | Enable/disable all sound notifications                     |
+| `clauder.sounds.promptCompletion`  | `true`  | Play sound when Claude Code finishes responding            |
+| `clauder.sounds.rateLimitWarning`  | `true`  | Play sound when approaching rate limits                    |
 
 ### Commands
 

@@ -2,7 +2,46 @@ export type PlanType = 'pro' | 'max5' | 'max20';
 
 export type StatusDisplayType = 'both' | 'vscode' | 'shell';
 
-export interface UsageData {
+// Platform identifiers
+export const PLATFORM = {
+  DARWIN: 'darwin',
+  WIN32: 'win32',
+  LINUX: 'linux',
+} as const;
+
+// Model families
+export const MODEL_FAMILY = {
+  OPUS: 'opus',
+  SONNET: 'sonnet',
+  HAIKU: 'haiku',
+  UNKNOWN: 'unknown',
+} as const;
+
+// Sound notification types
+export const SOUND_TYPE = {
+  COMPLETE: 'complete',
+  WARNING: 'warning',
+  LIMIT: 'limit',
+} as const;
+
+// API fetch result status
+export const FETCH_STATUS = {
+  SUCCESS: 'success',
+  NO_TOKEN: 'no_token',
+  ERROR: 'error',
+} as const;
+
+// Sound player executables
+export const SOUND_EXECUTABLE = {
+  AFPLAY: 'afplay',
+  POWERSHELL: 'powershell',
+  BASH: 'bash',
+} as const;
+
+// Keychain service name
+export const KEYCHAIN_SERVICE = 'Claude Code-credentials';
+
+export interface TokenUsageData {
   input_tokens: number;
   output_tokens: number;
   cache_creation_input_tokens?: number;
@@ -14,7 +53,7 @@ export interface SessionEntry {
   sessionId?: string;
   message?: {
     model?: string;
-    usage?: UsageData;
+    usage?: TokenUsageData;
   };
 }
 

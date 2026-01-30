@@ -8,7 +8,7 @@ import {
   getModelFamily,
   getRemainingTokens,
   getWeekBoundaries,
-} from '~/usage-utils';
+} from '~/usage';
 
 describe('getModelFamily', () => {
   it('returns opus for opus models', () => {

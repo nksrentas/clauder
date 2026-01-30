@@ -4,11 +4,11 @@ This directory contains sound files for Clauder notifications.
 
 ## Required Files
 
-| File | Purpose |
-|------|---------|
-| `complete.mp3` | Played when Claude Code finishes responding |
-| `warning.mp3` | Played when approaching rate limits (80%, 90%) |
-| `limit.mp3` | Played when rate limit is reached (100%) |
+| File           | Purpose                                        |
+| -------------- | ---------------------------------------------- |
+| `complete.mp3` | Played when Claude Code finishes responding    |
+| `warning.mp3`  | Played when approaching rate limits (80%, 90%) |
+| `limit.mp3`    | Played when rate limit is reached (100%)       |
 
 ## Notes
 

@@ -10,9 +10,11 @@ if [[ -f "$ENABLED_FILE" && "$(cat "$ENABLED_FILE")" == "false" ]]; then
 fi
 
 SOUND_FILE="$SOUNDS_DIR/complete.mp3"
+FALLBACK_SOUND="/System/Library/Sounds/Glass.aiff"
+
 if [[ -f "$SOUND_FILE" ]]; then
   "$SCRIPT_DIR/play-sound.sh" "$SOUND_FILE"
-elif [[ "$(uname -s)" == "Darwin" && -f "/System/Library/Sounds/Glass.aiff" ]]; then
-  afplay "/System/Library/Sounds/Glass.aiff" &>/dev/null &
+elif [[ -f "$FALLBACK_SOUND" ]]; then
+  "$SCRIPT_DIR/play-sound.sh" "$FALLBACK_SOUND"
 fi
 exit 0

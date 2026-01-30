@@ -1,12 +1,27 @@
-import type { ModelFamily, SessionEntry } from '~/types';
+import { MODEL_FAMILY, type ModelFamily, type SessionEntry } from '~/types';
+
+const modelFamilyCache = new Map<string, ModelFamily>();
 
 export function getModelFamily(model?: string): ModelFamily {
-  if (!model) return 'unknown';
+  if (!model) return MODEL_FAMILY.UNKNOWN;
+
+  const cached = modelFamilyCache.get(model);
+  if (cached !== undefined) return cached;
+
   const lower = model.toLowerCase();
-  if (lower.includes('opus')) return 'opus';
-  if (lower.includes('sonnet')) return 'sonnet';
-  if (lower.includes('haiku')) return 'haiku';
-  return 'unknown';
+  let family: ModelFamily;
+  if (lower.includes(MODEL_FAMILY.OPUS)) {
+    family = MODEL_FAMILY.OPUS;
+  } else if (lower.includes(MODEL_FAMILY.SONNET)) {
+    family = MODEL_FAMILY.SONNET;
+  } else if (lower.includes(MODEL_FAMILY.HAIKU)) {
+    family = MODEL_FAMILY.HAIKU;
+  } else {
+    family = MODEL_FAMILY.UNKNOWN;
+  }
+
+  modelFamilyCache.set(model, family);
+  return family;
 }
 
 export function getEntryTokens(entry: SessionEntry): number {

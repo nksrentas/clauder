@@ -7,14 +7,12 @@ set -e
 KEYCHAIN_SERVICE="Claude Code-credentials"
 API_URL="https://api.anthropic.com/api/oauth/usage"
 
-# Get OAuth token from macOS Keychain
 get_token() {
   local creds
   creds=$(security find-generic-password -s "$KEYCHAIN_SERVICE" -w 2>/dev/null) || return 1
-  echo "$creds" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('claudeAiOauth', {}).get('accessToken', ''))" 2>/dev/null
+  echo "$creds" | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null
 }
 
-# Fetch usage from API
 fetch_usage() {
   local token="$1"
   curl -s -X GET "$API_URL" \
@@ -23,7 +21,6 @@ fetch_usage() {
     -H "User-Agent: claude-code/2.0.60"
 }
 
-# Main
 main() {
   local token
   token=$(get_token)
@@ -41,24 +38,13 @@ main() {
     exit 1
   fi
 
-  # Parse and output simplified JSON
-  echo "$response" | python3 -c "
-import sys, json
-
-try:
-    data = json.load(sys.stdin)
-    result = {
-        'five_hour': data.get('five_hour', {}).get('utilization', 0) if data.get('five_hour') else 0,
-        'seven_day': data.get('seven_day', {}).get('utilization', 0) if data.get('seven_day') else 0,
-        'seven_day_sonnet': data.get('seven_day_sonnet', {}).get('utilization', 0) if data.get('seven_day_sonnet') else None,
-        'five_hour_resets_at': data.get('five_hour', {}).get('resets_at') if data.get('five_hour') else None,
-        'seven_day_resets_at': data.get('seven_day', {}).get('resets_at') if data.get('seven_day') else None,
-    }
-    print(json.dumps(result))
-except Exception as e:
-    print(json.dumps({'error': 'parse_error', 'message': str(e)}))
-    sys.exit(1)
-"
+  echo "$response" | jq '{
+    five_hour: (if .five_hour then (.five_hour.utilization // 0) else 0 end),
+    seven_day: (if .seven_day then (.seven_day.utilization // 0) else 0 end),
+    seven_day_sonnet: (if .seven_day_sonnet then .seven_day_sonnet.utilization else null end),
+    five_hour_resets_at: (if .five_hour then .five_hour.resets_at else null end),
+    seven_day_resets_at: (if .seven_day then .seven_day.resets_at else null end)
+  }' 2>/dev/null || echo '{"error": "parse_error", "message": "Failed to parse API response"}'
 }
 
 main

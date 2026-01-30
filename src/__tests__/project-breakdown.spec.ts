@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { SessionEntryWithCwd } from '~/types';
-import { calculateProjectBreakdown } from '~/usage-tracker';
+import { calculateProjectBreakdown } from '~/usage';
 
 describe('calculateProjectBreakdown', () => {
   const weekStart = new Date('2024-01-07T00:00:00Z');
@@ -135,7 +135,10 @@ describe('calculateProjectBreakdown', () => {
       {
         cwd: '/project-a',
         timestamp: '2024-01-08T10:00:00Z',
-        message: { model: 'claude-3-5-sonnet-20241022', usage: { input_tokens: 1_000_000, output_tokens: 0 } },
+        message: {
+          model: 'claude-3-5-sonnet-20241022',
+          usage: { input_tokens: 1_000_000, output_tokens: 0 },
+        },
       },
     ];
 

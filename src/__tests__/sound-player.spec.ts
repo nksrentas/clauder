@@ -1,4 +1,10 @@
+import * as vscode from 'vscode';
+
+import { spawn } from 'child_process';
+import { existsSync } from 'fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { SoundPlayer, SoundType } from '~/sound';
 
 vi.mock('child_process', () => ({
   spawn: vi.fn(() => ({
@@ -17,11 +23,6 @@ vi.mock('vscode', () => ({
     })),
   },
 }));
-
-import { spawn } from 'child_process';
-import { existsSync } from 'fs';
-import * as vscode from 'vscode';
-import { SoundPlayer, SoundType } from '~/sound-player';
 
 const spawnMock = vi.mocked(spawn);
 const existsSyncMock = vi.mocked(existsSync);
@@ -224,11 +225,75 @@ describe('SoundPlayer', () => {
       expect(spawnMock).not.toHaveBeenCalled();
     });
 
-    it('prioritizes limit sound over warning at 100%', async () => {
+    it('plays limit sound only once while staying at 100%', async () => {
+      await soundPlayer.checkRateLimitThreshold(100);
+      vi.advanceTimersByTime(61_000);
+      await soundPlayer.checkRateLimitThreshold(100);
+
+      expect(spawnMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not play warning when dropping from limit to warning range', async () => {
       await soundPlayer.checkRateLimitThreshold(100);
       vi.advanceTimersByTime(61_000);
       await soundPlayer.checkRateLimitThreshold(99);
 
+      // Only LIMIT sound at 100%, no WARNING at 99% since we were already warned
+      expect(spawnMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('plays sound again after usage drops below threshold and rises', async () => {
+      await soundPlayer.checkRateLimitThreshold(85);
+      expect(spawnMock).toHaveBeenCalledTimes(1);
+
+      // Stay at warning level - should not play again
+      vi.advanceTimersByTime(61_000);
+      await soundPlayer.checkRateLimitThreshold(85);
+      expect(spawnMock).toHaveBeenCalledTimes(1);
+
+      // Drop below threshold
+      await soundPlayer.checkRateLimitThreshold(50);
+      expect(spawnMock).toHaveBeenCalledTimes(1);
+
+      // Rise back above threshold - should play again
+      vi.advanceTimersByTime(61_000);
+      await soundPlayer.checkRateLimitThreshold(85);
+      expect(spawnMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('plays limit sound after warning if utilization rises to 100%', async () => {
+      await soundPlayer.checkRateLimitThreshold(85);
+      expect(spawnMock).toHaveBeenCalledTimes(1);
+
+      vi.advanceTimersByTime(61_000);
+      await soundPlayer.checkRateLimitThreshold(100);
+      expect(spawnMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('plays limit sound again after reset and return to 100%', async () => {
+      await soundPlayer.checkRateLimitThreshold(100);
+      expect(spawnMock).toHaveBeenCalledTimes(1);
+
+      // Drop below threshold to reset
+      await soundPlayer.checkRateLimitThreshold(50);
+
+      // Return to 100%
+      vi.advanceTimersByTime(61_000);
+      await soundPlayer.checkRateLimitThreshold(100);
+      expect(spawnMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('resetThresholdState allows warning to play again', async () => {
+      await soundPlayer.checkRateLimitThreshold(85);
+      expect(spawnMock).toHaveBeenCalledTimes(1);
+
+      vi.advanceTimersByTime(61_000);
+
+      // Reset threshold state (simulates limit window reset)
+      soundPlayer.resetThresholdState();
+
+      // Same utilization but should play again after reset
+      await soundPlayer.checkRateLimitThreshold(85);
       expect(spawnMock).toHaveBeenCalledTimes(2);
     });
   });
@@ -247,11 +312,7 @@ describe('SoundPlayer', () => {
 
         await soundPlayer.play('complete');
 
-        expect(spawnMock).toHaveBeenCalledWith(
-          expectedCmd,
-          expect.any(Array),
-          expect.any(Object)
-        );
+        expect(spawnMock).toHaveBeenCalledWith(expectedCmd, expect.any(Array), expect.any(Object));
 
         Object.defineProperty(process, 'platform', { value: originalPlatform });
       });

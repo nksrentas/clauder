@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import type { FetchResult, OAuthUsageResponse, UsageData } from '~/usage-api';
-import { parseOAuthResponse } from '~/usage-api';
+import type { FetchResult, OAuthUsageResponse, UsageData } from '~/usage';
+import { parseOAuthResponse } from '~/usage';
 
 describe('FetchResult type', () => {
   it('success result contains UsageData', () => {

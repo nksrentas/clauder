@@ -1,4 +1,4 @@
-import type { UsageData } from '~/usage-api';
+import type { UsageData } from '~/usage';
 
 export type LimitKind = 'session' | 'weeklyAll' | 'weeklySonnet';
 

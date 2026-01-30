@@ -5,16 +5,11 @@ import { activate, deactivate } from '~/extension';
 const fetchUsage = vi.fn();
 const calculateUsage = vi.fn().mockResolvedValue(null);
 
-vi.mock('~/usage-api', () => {
+vi.mock('~/usage', () => {
   return {
     UsageApiClient: class {
       fetchUsage = fetchUsage;
     },
-  };
-});
-
-vi.mock('~/usage-tracker', () => {
-  return {
     UsageTracker: class {
       calculateUsage = calculateUsage;
     },
@@ -248,6 +243,115 @@ describe('extension limit pause/resume integration', () => {
     expect(bar.text).toMatch(/2m|1m/);
 
     expect(fetchUsage).toHaveBeenCalledTimes(1);
+
+    vi.useRealTimers();
+  });
+});
+
+describe('authentication prompt behavior', () => {
+  afterEach(() => {
+    deactivate();
+    vi.useRealTimers();
+  });
+
+  beforeEach(async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-01-01T00:00:00Z'));
+    fetchUsage.mockReset();
+    calculateUsage.mockClear();
+    const vscode = await import('vscode');
+    (vscode as any).__items.length = 0;
+    const commands = (vscode as any).commands.__commands;
+    Object.keys(commands).forEach((key) => delete commands[key]);
+    (vscode.window.showInformationMessage as any).mockClear();
+  });
+
+  it('shows authentication prompt only once when no token', async () => {
+    fetchUsage.mockResolvedValue({ status: 'no_token' });
+
+    const context = {
+      subscriptions: [],
+      extensionPath: '/test/extension',
+      globalState: {
+        get: vi.fn().mockReturnValue(true),
+        update: vi.fn().mockResolvedValue(undefined),
+      },
+    } as any;
+    await activate(context);
+
+    const vscode = await import('vscode');
+    expect(vscode.window.showInformationMessage).toHaveBeenCalledTimes(1);
+
+    // Advance time past refresh interval
+    await vi.advanceTimersByTimeAsync(35_000);
+
+    // Should still only be called once
+    expect(vscode.window.showInformationMessage).toHaveBeenCalledTimes(1);
+
+    vi.useRealTimers();
+  });
+
+  it('does not show prompt again after manual refresh when no token', async () => {
+    fetchUsage.mockResolvedValue({ status: 'no_token' });
+
+    const context = {
+      subscriptions: [],
+      extensionPath: '/test/extension',
+      globalState: {
+        get: vi.fn().mockReturnValue(true),
+        update: vi.fn().mockResolvedValue(undefined),
+      },
+    } as any;
+    await activate(context);
+
+    const vscode = await import('vscode');
+    expect(vscode.window.showInformationMessage).toHaveBeenCalledTimes(1);
+
+    // Manual refresh
+    const refresh = (vscode as any).commands.__commands['clauder.refresh'];
+    await refresh();
+
+    // Should still only be called once
+    expect(vscode.window.showInformationMessage).toHaveBeenCalledTimes(1);
+
+    vi.useRealTimers();
+  });
+
+  it('shows prompt again after token was available then removed', async () => {
+    const normalUsage = {
+      session: { utilization: 50, resetsAt: null },
+      weeklyAll: { utilization: 25, resetsAt: null },
+      weeklySonnet: null,
+    };
+
+    // First: no token
+    fetchUsage
+      .mockResolvedValueOnce({ status: 'no_token' })
+      // Then: success (token available)
+      .mockResolvedValueOnce({ status: 'success', data: normalUsage })
+      // Then: no token again
+      .mockResolvedValueOnce({ status: 'no_token' });
+
+    const context = {
+      subscriptions: [],
+      extensionPath: '/test/extension',
+      globalState: {
+        get: vi.fn().mockReturnValue(true),
+        update: vi.fn().mockResolvedValue(undefined),
+      },
+    } as any;
+    await activate(context);
+
+    const vscode = await import('vscode');
+    expect(vscode.window.showInformationMessage).toHaveBeenCalledTimes(1);
+
+    // Advance to trigger refresh with success
+    await vi.advanceTimersByTimeAsync(305_000);
+    expect(vscode.window.showInformationMessage).toHaveBeenCalledTimes(1);
+
+    // Advance to trigger refresh with no_token again
+    await vi.advanceTimersByTimeAsync(305_000);
+    expect(vscode.window.showInformationMessage).toHaveBeenCalledTimes(2);
 
     vi.useRealTimers();
   });

@@ -8,7 +8,7 @@ import {
   formatTimeRemaining,
   formatTokens,
   getUsageColor,
-} from '~/formatters';
+} from '~/ui/formatters';
 
 describe('formatTimeRemaining', () => {
   it('returns "now" when time has passed', () => {
