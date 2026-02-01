@@ -154,6 +154,130 @@ export class UsageTracker {
   }
 
   /**
+   * Calculate costs for API key billing mode
+   * Returns daily, weekly, and monthly costs with model breakdown
+   */
+  async calculateCostSummary(): Promise<{
+    dailyCost: number;
+    weeklyCost: number;
+    monthlyCost: number;
+    modelBreakdown: {
+      opus?: { cost: number; inputTokens: number; outputTokens: number };
+      sonnet?: { cost: number; inputTokens: number; outputTokens: number };
+      haiku?: { cost: number; inputTokens: number; outputTokens: number };
+    };
+  }> {
+    const entries = await this.getAllUsageEntries();
+    const now = new Date();
+    const nowMs = now.getTime();
+
+    // Calculate time boundaries
+    const todayStart = new Date(now);
+    todayStart.setUTCHours(0, 0, 0, 0);
+    const todayStartMs = todayStart.getTime();
+
+    const weekStart = new Date(now);
+    weekStart.setUTCDate(weekStart.getUTCDate() - weekStart.getUTCDay());
+    weekStart.setUTCHours(0, 0, 0, 0);
+    const weekStartMs = weekStart.getTime();
+
+    const monthStart = new Date(now.getUTCFullYear(), now.getUTCMonth(), 1);
+    const monthStartMs = monthStart.getTime();
+
+    // Initialize accumulators
+    const dailyByModel: Record<string, { inputTokens: number; outputTokens: number }> = {};
+    const weeklyByModel: Record<string, { inputTokens: number; outputTokens: number }> = {};
+    const monthlyByModel: Record<string, { inputTokens: number; outputTokens: number }> = {};
+
+    for (const entry of entries) {
+      const tsMs = entry._tsMs;
+      if (tsMs > nowMs) continue;
+
+      const inputTokens = entry.message?.usage?.input_tokens || 0;
+      const outputTokens = entry.message?.usage?.output_tokens || 0;
+      const family = getModelFamily(entry.message?.model);
+
+      // Monthly (includes weekly and daily)
+      if (tsMs >= monthStartMs) {
+        if (!monthlyByModel[family]) {
+          monthlyByModel[family] = { inputTokens: 0, outputTokens: 0 };
+        }
+        monthlyByModel[family].inputTokens += inputTokens;
+        monthlyByModel[family].outputTokens += outputTokens;
+
+        // Weekly
+        if (tsMs >= weekStartMs) {
+          if (!weeklyByModel[family]) {
+            weeklyByModel[family] = { inputTokens: 0, outputTokens: 0 };
+          }
+          weeklyByModel[family].inputTokens += inputTokens;
+          weeklyByModel[family].outputTokens += outputTokens;
+
+          // Daily
+          if (tsMs >= todayStartMs) {
+            if (!dailyByModel[family]) {
+              dailyByModel[family] = { inputTokens: 0, outputTokens: 0 };
+            }
+            dailyByModel[family].inputTokens += inputTokens;
+            dailyByModel[family].outputTokens += outputTokens;
+          }
+        }
+      }
+    }
+
+    // Calculate costs
+    const calcCostForPeriod = (byModel: Record<string, { inputTokens: number; outputTokens: number }>) => {
+      let total = 0;
+      for (const family of Object.keys(byModel) as ModelFamily[]) {
+        const usage = byModel[family];
+        const pricing = MODEL_PRICING[family] || MODEL_PRICING.unknown;
+        total += calculateCost(
+          usage.inputTokens,
+          usage.outputTokens,
+          pricing.inputPerMTok,
+          pricing.outputPerMTok
+        );
+      }
+      return total;
+    };
+
+    const dailyCost = calcCostForPeriod(dailyByModel);
+    const weeklyCost = calcCostForPeriod(weeklyByModel);
+    const monthlyCost = calcCostForPeriod(monthlyByModel);
+
+    // Build model breakdown for daily (most granular)
+    const modelBreakdown: {
+      opus?: { cost: number; inputTokens: number; outputTokens: number };
+      sonnet?: { cost: number; inputTokens: number; outputTokens: number };
+      haiku?: { cost: number; inputTokens: number; outputTokens: number };
+    } = {};
+
+    for (const family of ['opus', 'sonnet', 'haiku'] as const) {
+      const usage = dailyByModel[family];
+      if (usage) {
+        const pricing = MODEL_PRICING[family];
+        modelBreakdown[family] = {
+          cost: calculateCost(
+            usage.inputTokens,
+            usage.outputTokens,
+            pricing.inputPerMTok,
+            pricing.outputPerMTok
+          ),
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+        };
+      }
+    }
+
+    return {
+      dailyCost,
+      weeklyCost,
+      monthlyCost,
+      modelBreakdown,
+    };
+  }
+
+  /**
    * Hash project path for privacy (only first 16 chars of SHA-256)
    */
   private hashProjectPath(cwd?: string): string {

@@ -153,3 +153,31 @@ export type LimitPrediction = {
   canPredict: boolean;
   reason?: 'no_recent_usage' | 'already_at_limit';
 };
+
+// Billing mode - subscription (rate limits) vs API key (pay-per-token)
+export type BillingMode = 'subscription' | 'api_key' | 'unknown';
+
+// Cost summary for API key users
+export interface CostSummary {
+  dailyCost: number;
+  weeklyCost: number;
+  monthlyCost: number;
+  modelBreakdown: {
+    opus?: { cost: number; inputTokens: number; outputTokens: number };
+    sonnet?: { cost: number; inputTokens: number; outputTokens: number };
+    haiku?: { cost: number; inputTokens: number; outputTokens: number };
+  };
+}
+
+// Limit status returned from backend
+export interface LimitStatus {
+  isBlocked: boolean;
+  blockReason: string | null;
+  warnings: string[];
+  dailyUsedUsd: number;
+  dailyLimitUsd: number | null;
+  weeklyUsedUsd: number;
+  weeklyLimitUsd: number | null;
+  monthlyUsedUsd: number;
+  monthlyLimitUsd: number | null;
+}

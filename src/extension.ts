@@ -16,7 +16,9 @@ import { UsageApiClient, UsageTracker } from '~/usage';
 
 const SHELL_INTEGRATION_PROMPTED_KEY = 'shellIntegrationPrompted';
 const SCRIPT_UPDATE_PROMPTED_KEY = 'scriptUpdatePrompted_v1';
-const INSTALL_URL = 'https://hellobussin.com/clauder/install.sh';
+const WEB_DASHBOARD_PROMPTED_KEY = 'webDashboardPrompted_v1';
+const INSTALL_URL = 'https://clauder.fyi/api/scripts/install';
+const WEB_DASHBOARD_URL = 'https://clauder.fyi/dashboard/extension';
 
 let statusBarManager: StatusBarManager;
 let usageApiClient: UsageApiClient;
@@ -170,6 +172,7 @@ export function activate(context: vscode.ExtensionContext) {
   updateStatusBar();
   promptShellIntegration(context);
   checkScriptVersion(context);
+  promptWebDashboard(context);
 }
 
 async function updateStatusBar(): Promise<void> {
@@ -382,6 +385,26 @@ async function checkScriptVersion(context: vscode.ExtensionContext): Promise<voi
     }
   } catch (err) {
     console.log('[Clauder] Could not check script version:', err);
+  }
+}
+
+async function promptWebDashboard(context: vscode.ExtensionContext): Promise<void> {
+  const alreadyPrompted = context.globalState.get<boolean>(WEB_DASHBOARD_PROMPTED_KEY);
+  if (alreadyPrompted) {
+    return;
+  }
+
+  const action = await vscode.window.showInformationMessage(
+    'Customize your statusline! Drag & drop elements, choose icons, and more at clauder.fyi',
+    'Open Dashboard',
+    "Don't Show Again"
+  );
+
+  if (action === 'Open Dashboard') {
+    vscode.env.openExternal(vscode.Uri.parse(WEB_DASHBOARD_URL));
+    await context.globalState.update(WEB_DASHBOARD_PROMPTED_KEY, true);
+  } else if (action === "Don't Show Again") {
+    await context.globalState.update(WEB_DASHBOARD_PROMPTED_KEY, true);
   }
 }
 

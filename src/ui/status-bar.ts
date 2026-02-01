@@ -9,7 +9,7 @@ import { ConfigCache } from '~/config/cache';
 import { DEFAULT_WEEKLY_ALERT_THRESHOLD, shouldHighlightWeekly } from '~/limit';
 import type { LimitKind, LimitReset } from '~/limit';
 import type { PredictionResponse } from '~/sync';
-import type { ProjectBreakdown, UsageSummary } from '~/types';
+import type { BillingMode, LimitStatus, ProjectBreakdown, UsageSummary } from '~/types';
 import type { UsageData } from '~/usage';
 
 const SHELL_SETTINGS_CACHE_TTL = 30_000;
@@ -36,6 +36,14 @@ export type CombinedUsage = {
   api: UsageData | null;
   local: UsageSummary | null;
   prediction: PredictionResponse | null;
+  // Cost mode fields
+  billingMode?: BillingMode;
+  limitStatus?: LimitStatus | null;
+  costSummary?: {
+    dailyCost: number;
+    weeklyCost: number;
+    monthlyCost: number;
+  };
 };
 
 /**
@@ -44,6 +52,28 @@ export type CombinedUsage = {
  */
 function formatEtaCompact(eta: string): string {
   return eta.replace(' minutes', 'm').replace(' minute', 'm').replace(' hours', 'h').replace(' hour', 'h');
+}
+
+/**
+ * Format USD cost for display
+ */
+function formatCost(usd: number): string {
+  if (usd < 0.01) return '$0.00';
+  if (usd < 1) return `$${usd.toFixed(2)}`;
+  if (usd < 10) return `$${usd.toFixed(2)}`;
+  if (usd < 100) return `$${usd.toFixed(1)}`;
+  return `$${Math.round(usd)}`;
+}
+
+/**
+ * Get color for cost based on percentage of limit
+ */
+function getCostColor(usedUsd: number, limitUsd: number | null): vscode.ThemeColor | undefined {
+  if (!limitUsd) return undefined;
+  const percent = (usedUsd / limitUsd) * 100;
+  if (percent >= 100) return new vscode.ThemeColor('errorForeground');
+  if (percent >= 80) return new vscode.ThemeColor('editorWarning.foreground');
+  return undefined;
 }
 
 export class StatusBarManager {
@@ -128,6 +158,13 @@ export class StatusBarManager {
   }
 
   private render(usage: CombinedUsage, inlineWeekly: boolean): void {
+    // Cost mode: API key billing
+    if (usage.billingMode === 'api_key' && usage.costSummary) {
+      this.renderCostMode(usage);
+      return;
+    }
+
+    // Rate limit mode: subscription billing
     if (usage.api) {
       const sessionPercent = Math.round(usage.api.session.utilization);
       const sessionTime = usage.api.session.resetsAt
@@ -164,6 +201,116 @@ export class StatusBarManager {
       this.setStatusText('$(sparkle) N/A');
       this.statusBarItem.tooltip = 'Unable to fetch usage data';
     }
+  }
+
+  /**
+   * Render cost-based status for API key billing mode
+   * Shows: "$12.47 today | $89.23 / $100 month"
+   */
+  private renderCostMode(usage: CombinedUsage): void {
+    const cost = usage.costSummary!;
+    const status = usage.limitStatus;
+
+    // Build status text
+    let statusText = `$(sparkle) ${formatCost(cost.dailyCost)} today`;
+
+    // Add monthly with limit if configured
+    if (status?.monthlyLimitUsd) {
+      statusText += ` | ${formatCost(cost.monthlyCost)} / ${formatCost(status.monthlyLimitUsd)} month`;
+    } else {
+      statusText += ` | ${formatCost(cost.monthlyCost)} month`;
+    }
+
+    // Add warning indicator if blocked or has warnings
+    if (status?.isBlocked) {
+      statusText = `$(error) ${statusText}`;
+    } else if (status?.warnings && status.warnings.length > 0) {
+      statusText = `$(warning) ${statusText.replace('$(sparkle) ', '')}`;
+    }
+
+    this.setStatusText(statusText);
+
+    // Set color based on limit status
+    if (status?.isBlocked) {
+      this.statusBarItem.color = new vscode.ThemeColor('errorForeground');
+    } else if (status?.monthlyLimitUsd) {
+      this.statusBarItem.color = getCostColor(cost.monthlyCost, status.monthlyLimitUsd);
+    } else if (status?.dailyLimitUsd) {
+      this.statusBarItem.color = getCostColor(cost.dailyCost, status.dailyLimitUsd);
+    } else {
+      this.statusBarItem.color = undefined;
+    }
+
+    this.statusBarItem.tooltip = this.buildCostTooltip(usage);
+  }
+
+  /**
+   * Build tooltip for cost mode
+   */
+  private buildCostTooltip(usage: CombinedUsage): vscode.MarkdownString {
+    const cost = usage.costSummary!;
+    const status = usage.limitStatus;
+    const local = usage.local;
+
+    const md = new vscode.MarkdownString();
+    md.supportHtml = true;
+    md.supportThemeIcons = true;
+    md.isTrusted = true;
+    md.appendMarkdown('<div style="min-width:280px">\n\n');
+    md.appendMarkdown(`${styledHeading('Claude Code Usage (API Key)')}\n\n`);
+
+    // Blocked warning
+    if (status?.isBlocked) {
+      md.appendMarkdown(`$(error) **${status.blockReason || 'Budget exceeded'}**\n\n`);
+    }
+
+    // Warnings
+    if (status?.warnings && status.warnings.length > 0) {
+      for (const warning of status.warnings) {
+        md.appendMarkdown(`$(warning) ${warning}\n\n`);
+      }
+    }
+
+    md.appendMarkdown('---\n\n');
+
+    // Daily cost
+    md.appendMarkdown(`**Today:** ${formatCost(cost.dailyCost)}`);
+    if (status?.dailyLimitUsd) {
+      const dailyPct = Math.round((cost.dailyCost / status.dailyLimitUsd) * 100);
+      md.appendMarkdown(` / ${formatCost(status.dailyLimitUsd)} (${dailyPct}%)`);
+    }
+    md.appendMarkdown('\n\n');
+
+    // Weekly cost
+    md.appendMarkdown(`**This Week:** ${formatCost(cost.weeklyCost)}`);
+    if (status?.weeklyLimitUsd) {
+      const weeklyPct = Math.round((cost.weeklyCost / status.weeklyLimitUsd) * 100);
+      md.appendMarkdown(` / ${formatCost(status.weeklyLimitUsd)} (${weeklyPct}%)`);
+    }
+    md.appendMarkdown('\n\n');
+
+    // Monthly cost
+    md.appendMarkdown(`**This Month:** ${formatCost(cost.monthlyCost)}`);
+    if (status?.monthlyLimitUsd) {
+      const monthlyPct = Math.round((cost.monthlyCost / status.monthlyLimitUsd) * 100);
+      md.appendMarkdown(` / ${formatCost(status.monthlyLimitUsd)} (${monthlyPct}%)`);
+    }
+    md.appendMarkdown('\n\n');
+
+    // Project breakdown if available
+    if (local?.projectBreakdown && local.projectBreakdown.projects.length > 0) {
+      md.appendMarkdown('---\n\n');
+      md.appendMarkdown(`${styledHeading('Usage by Project (Week)')}\n\n`);
+      this.appendProjectBreakdown(md, local.projectBreakdown);
+    }
+
+    this.appendQuickSettings(md);
+
+    md.appendMarkdown('---\n\n');
+    md.appendMarkdown('_Click to refresh_');
+    md.appendMarkdown('\n\n</div>');
+
+    return md;
   }
 
   /**

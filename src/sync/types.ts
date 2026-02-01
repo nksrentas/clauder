@@ -2,6 +2,8 @@
  * Sync module types for backend communication
  */
 
+import type { BillingMode } from '~/types';
+
 /**
  * Individual usage session data for detailed tracking
  */
@@ -14,6 +16,35 @@ export interface UsageSession {
 }
 
 /**
+ * Cost data for API key users
+ */
+export interface CostData {
+  daily_cost_usd: number;
+  weekly_cost_usd: number;
+  monthly_cost_usd: number;
+  model_breakdown?: {
+    opus?: { cost: number; input_tokens: number; output_tokens: number };
+    sonnet?: { cost: number; input_tokens: number; output_tokens: number };
+    haiku?: { cost: number; input_tokens: number; output_tokens: number };
+  };
+}
+
+/**
+ * Limit status returned from backend
+ */
+export interface LimitStatusResponse {
+  is_blocked: boolean;
+  block_reason: string | null;
+  warnings: string[];
+  daily_used_usd: number;
+  daily_limit_usd: number | null;
+  weekly_used_usd: number;
+  weekly_limit_usd: number | null;
+  monthly_used_usd: number;
+  monthly_limit_usd: number | null;
+}
+
+/**
  * Payload sent to the backend sync endpoint
  */
 export interface SyncPayload {
@@ -23,6 +54,11 @@ export interface SyncPayload {
   current_weekly_utilization_pct: number;
   last_interaction_at: string;
   sessions?: UsageSession[];
+
+  // Cost tracking fields (API key mode)
+  billing_mode?: BillingMode;
+  api_key_prefix?: string;
+  cost_data?: CostData;
 }
 
 /**
@@ -31,6 +67,7 @@ export interface SyncPayload {
 export interface SyncResponse {
   synced: number;
   velocity_updated: boolean;
+  limit_status?: LimitStatusResponse | null;
 }
 
 /**

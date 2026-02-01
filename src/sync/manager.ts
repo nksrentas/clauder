@@ -1,7 +1,16 @@
 import * as vscode from 'vscode';
 
 import { SyncApiClient } from './api';
-import { PredictionResponse, SyncConfig, SyncPayload, SyncResult, UsageSession } from './types';
+import {
+  CostData,
+  LimitStatusResponse,
+  PredictionResponse,
+  SyncConfig,
+  SyncPayload,
+  SyncResult,
+  UsageSession,
+} from './types';
+import type { BillingMode, LimitStatus } from '~/types';
 
 /**
  * Manages periodic syncing of usage data to the Clauder backend
@@ -18,6 +27,13 @@ export class SyncManager {
   private pendingSessions: UsageSession[] = [];
   private onPredictionUpdateCallback: ((prediction: PredictionResponse | null) => void) | null =
     null;
+
+  // Cost tracking for API key mode
+  private billingMode: BillingMode = 'unknown';
+  private apiKeyPrefix: string | undefined;
+  private pendingCostData: CostData | undefined;
+  private lastLimitStatus: LimitStatus | null = null;
+  private onLimitStatusUpdateCallback: ((status: LimitStatus | null) => void) | null = null;
 
   constructor() {
     this.config = this.getConfig();
@@ -111,6 +127,43 @@ export class SyncManager {
   }
 
   /**
+   * Set billing mode and API key prefix
+   */
+  setBillingMode(mode: BillingMode, apiKeyPrefix?: string): void {
+    this.billingMode = mode;
+    this.apiKeyPrefix = apiKeyPrefix;
+    console.log(`[Clauder Sync] Billing mode set to: ${mode}`);
+  }
+
+  /**
+   * Get current billing mode
+   */
+  getBillingMode(): BillingMode {
+    return this.billingMode;
+  }
+
+  /**
+   * Set cost data to be synced (for API key mode)
+   */
+  setCostData(costData: CostData): void {
+    this.pendingCostData = costData;
+  }
+
+  /**
+   * Get the last limit status
+   */
+  getLimitStatus(): LimitStatus | null {
+    return this.lastLimitStatus;
+  }
+
+  /**
+   * Set callback for limit status updates
+   */
+  onLimitStatusUpdate(callback: (status: LimitStatus | null) => void): void {
+    this.onLimitStatusUpdateCallback = callback;
+  }
+
+  /**
    * Get the timestamp of the last successfully synced session
    * Used for incremental syncing (only sync sessions newer than this)
    */
@@ -153,10 +206,14 @@ export class SyncManager {
       current_weekly_utilization_pct: this.lastUtilization.weekly,
       last_interaction_at: this.lastInteractionAt.toISOString(),
       sessions: this.pendingSessions.length > 0 ? this.pendingSessions : undefined,
+      // Cost tracking fields
+      billing_mode: this.billingMode !== 'unknown' ? this.billingMode : undefined,
+      api_key_prefix: this.apiKeyPrefix,
+      cost_data: this.pendingCostData,
     };
 
     console.log(
-      `[Clauder Sync] Syncing to backend... (${this.pendingSessions.length} sessions queued)`
+      `[Clauder Sync] Syncing to backend... (${this.pendingSessions.length} sessions queued, billing: ${this.billingMode})`
     );
     const result = await this.apiClient.sync(payload);
 
@@ -179,6 +236,16 @@ export class SyncManager {
       // Clear pending sessions after successful sync
       this.pendingSessions = [];
 
+      // Process limit status if returned (API key mode)
+      if (result.data.limit_status) {
+        this.lastLimitStatus = this.convertLimitStatus(result.data.limit_status);
+        console.log('[Clauder Sync] Limit status:', {
+          blocked: this.lastLimitStatus.isBlocked,
+          warnings: this.lastLimitStatus.warnings.length,
+        });
+        this.onLimitStatusUpdateCallback?.(this.lastLimitStatus);
+      }
+
       // Fetch predictions after successful sync
       await this.fetchPrediction();
     } else if (result.status === 'error') {
@@ -186,6 +253,23 @@ export class SyncManager {
     }
 
     return result;
+  }
+
+  /**
+   * Convert backend limit status to internal format
+   */
+  private convertLimitStatus(status: LimitStatusResponse): LimitStatus {
+    return {
+      isBlocked: status.is_blocked,
+      blockReason: status.block_reason,
+      warnings: status.warnings,
+      dailyUsedUsd: status.daily_used_usd,
+      dailyLimitUsd: status.daily_limit_usd,
+      weeklyUsedUsd: status.weekly_used_usd,
+      weeklyLimitUsd: status.weekly_limit_usd,
+      monthlyUsedUsd: status.monthly_used_usd,
+      monthlyLimitUsd: status.monthly_limit_usd,
+    };
   }
 
   /**
