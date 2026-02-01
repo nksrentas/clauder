@@ -88,7 +88,6 @@ export interface UsageSummary {
   windowEndTime: Date;
   weekStartTime: Date;
   weekEndTime: Date;
-  plan: PlanType;
   modelBreakdown: Record<ModelFamily, ModelUsage>;
   totalCost: number;
   projectBreakdown?: ProjectBreakdown;

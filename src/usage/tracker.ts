@@ -1,10 +1,12 @@
 import { calculateCost, getEntryTokens, getModelFamily, getWeekBoundaries } from './utils';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import * as readline from 'readline';
 
+import type { UsageSession } from '~/sync/types';
 import type {
   LimitPrediction,
   ModelFamily,
@@ -110,7 +112,6 @@ export class UsageTracker {
       windowEndTime: windowEnd,
       weekStartTime: weekStart,
       weekEndTime: weekEnd,
-      plan,
       modelBreakdown,
       totalCost,
       projectBreakdown,
@@ -119,6 +120,45 @@ export class UsageTracker {
     };
 
     return result;
+  }
+
+  /**
+   * Get recent session entries for syncing to backend
+   * @param sinceTimestamp Only return sessions after this timestamp (for incremental sync)
+   * @param limit Maximum number of sessions to return (default 500)
+   */
+  async getRecentSessions(sinceTimestamp?: Date, limit: number = 500): Promise<UsageSession[]> {
+    const entries = await this.getAllUsageEntries();
+    const sinceMs = sinceTimestamp?.getTime() ?? 0;
+
+    const sessions: UsageSession[] = [];
+
+    for (const entry of entries) {
+      if (entry._tsMs <= sinceMs) continue;
+
+      sessions.push({
+        timestamp: entry.timestamp,
+        tokens_input: entry.message?.usage?.input_tokens ?? 0,
+        tokens_output: entry.message?.usage?.output_tokens ?? 0,
+        model: entry.message?.model ?? 'unknown',
+        project_hash: this.hashProjectPath(entry.cwd),
+      });
+
+      if (sessions.length >= limit) break;
+    }
+
+    // Sort by timestamp descending (most recent first)
+    sessions.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    return sessions.slice(0, limit);
+  }
+
+  /**
+   * Hash project path for privacy (only first 16 chars of SHA-256)
+   */
+  private hashProjectPath(cwd?: string): string {
+    if (!cwd) return 'unknown';
+    return crypto.createHash('sha256').update(cwd).digest('hex').slice(0, 16);
   }
 
   private getWindowStart(entries: EntryWithParsedTime[], now: Date): Date {

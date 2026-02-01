@@ -115,7 +115,6 @@ Hover over the status bar item to see a breakdown of your weekly usage across al
 
 | Setting                            | Default | Description                                                |
 | ---------------------------------- | ------- | ---------------------------------------------------------- |
-| `clauder.plan`                     | `pro`   | Your subscription plan: `pro`, `max5`, or `max20`          |
 | `clauder.refreshInterval`          | `30`    | Auto-refresh interval in seconds (5-300)                   |
 | `clauder.weeklyHighlightThreshold` | `90`    | Show weekly usage in status bar when above this % (50-100) |
 | `clauder.sounds.enabled`           | `true`  | Enable/disable all sound notifications                     |

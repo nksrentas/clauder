@@ -50,3 +50,59 @@ export interface SyncConfig {
   backendUrl: string;
   interval: number;
 }
+
+/**
+ * Confidence information for predictions
+ */
+export interface PredictionConfidence {
+  score: number;
+  tier: 'high' | 'medium' | 'low' | 'insufficient';
+}
+
+/**
+ * 5-hour prediction data
+ */
+export interface FiveHourPrediction {
+  current_pct: number;
+  eta_human: string | null;
+  mode: 'velocity' | 'pattern';
+  confidence: PredictionConfidence;
+  burn_rate_pct_per_min: number | null;
+}
+
+/**
+ * Weekly prediction data
+ */
+export interface WeeklyPrediction {
+  current_pct: number;
+  projected_pct: number;
+  projected_pct_human: string;
+  breach_day: string | null;
+  confidence: PredictionConfidence;
+}
+
+/**
+ * Session state information
+ */
+export interface SessionState {
+  state: 'active' | 'idle';
+  last_interaction_at: string;
+}
+
+/**
+ * Full prediction response from backend
+ */
+export interface PredictionResponse {
+  five_hour: FiveHourPrediction;
+  weekly: WeeklyPrediction;
+  session: SessionState;
+  cached_at: string;
+}
+
+/**
+ * Result wrapper for prediction operations
+ */
+export type PredictionResult =
+  | { status: 'success'; data: PredictionResponse }
+  | { status: 'error'; error: string }
+  | { status: 'disabled' };

@@ -9,7 +9,7 @@ import { computeResumeDelay, getLimitReset, shouldRemainPaused } from '~/limit';
 import type { LimitReset } from '~/limit';
 import { SoundPlayer } from '~/sound';
 import { SyncManager } from '~/sync';
-import type { PlanType, StatusDisplayType } from '~/types';
+import type { StatusDisplayType } from '~/types';
 import type { CombinedUsage } from '~/ui';
 import { StatusBarManager } from '~/ui';
 import { UsageApiClient, UsageTracker } from '~/usage';
@@ -30,7 +30,6 @@ let countdownInterval: NodeJS.Timeout | undefined;
 let authPromptedThisSession = false;
 
 interface ClauderConfig {
-  plan: PlanType;
   weeklyThreshold: number;
   refreshInterval: number;
   statusDisplay: StatusDisplayType;
@@ -44,7 +43,6 @@ function getClauderConfig(): ClauderConfig {
     configCache = new ConfigCache(() => {
       const config = vscode.workspace.getConfiguration('clauder');
       return {
-        plan: config.get<PlanType>('plan', 'pro'),
         weeklyThreshold: config.get<number>('weeklyHighlightThreshold', 90),
         refreshInterval: config.get<number>('refreshInterval', 30),
         statusDisplay: config.get<StatusDisplayType>('statusDisplay', 'both'),
@@ -66,6 +64,13 @@ export function activate(context: vscode.ExtensionContext) {
   usageTracker = new UsageTracker();
   soundPlayer = new SoundPlayer(context);
   syncManager = new SyncManager();
+
+  // Update status bar when predictions are received
+  syncManager.onPredictionUpdate(() => {
+    // Trigger a status bar refresh to show new predictions
+    updateStatusBar();
+  });
+
   syncManager.start();
 
   const refreshCommand = vscode.commands.registerCommand('clauder.refresh', () =>
@@ -199,7 +204,7 @@ async function updateStatusBar(): Promise<void> {
     try {
       const config = getClauderConfig();
       statusBarManager.setWeeklyThreshold(config.weeklyThreshold);
-      localData = await usageTracker.calculateUsage(config.plan);
+      localData = await usageTracker.calculateUsage('pro');
     } catch {
       console.log('[Clauder] Local data fetch failed, continuing with API only');
     }
@@ -207,6 +212,7 @@ async function updateStatusBar(): Promise<void> {
     const combined: CombinedUsage = {
       api: result.data,
       local: localData,
+      prediction: syncManager?.getPrediction() ?? null,
     };
 
     const resetTime = getLimitReset(result.data);
@@ -229,6 +235,19 @@ async function updateStatusBar(): Promise<void> {
         result.data.session.utilization,
         result.data.weeklyAll.utilization
       );
+
+      // Fetch and queue recent sessions for sync (incremental based on last synced timestamp)
+      try {
+        const recentSessions = await usageTracker.getRecentSessions(
+          syncManager?.getLastSyncedSessionTimestamp() ?? undefined
+        );
+        if (recentSessions.length > 0) {
+          syncManager?.setSessions(recentSessions);
+          console.log(`[Clauder] Queued ${recentSessions.length} sessions for sync`);
+        }
+      } catch {
+        console.log('[Clauder] Failed to fetch recent sessions for sync');
+      }
     }
 
     console.log('[Clauder] API data:', JSON.stringify(result.data, null, 2));

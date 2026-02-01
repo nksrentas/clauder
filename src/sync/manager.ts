@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
 import { SyncApiClient } from './api';
-import { SyncConfig, SyncPayload, SyncResult } from './types';
+import { PredictionResponse, SyncConfig, SyncPayload, SyncResult, UsageSession } from './types';
 
 /**
  * Manages periodic syncing of usage data to the Clauder backend
@@ -10,9 +10,14 @@ export class SyncManager {
   private apiClient: SyncApiClient;
   private syncInterval: NodeJS.Timeout | undefined;
   private lastSyncAt: Date | null = null;
+  private lastSyncedSessionTimestamp: Date | null = null;
   private lastInteractionAt: Date = new Date();
   private lastUtilization: { session: number; weekly: number } = { session: 0, weekly: 0 };
+  private lastPrediction: PredictionResponse | null = null;
   private config: SyncConfig;
+  private pendingSessions: UsageSession[] = [];
+  private onPredictionUpdateCallback: ((prediction: PredictionResponse | null) => void) | null =
+    null;
 
   constructor() {
     this.config = this.getConfig();
@@ -99,6 +104,21 @@ export class SyncManager {
   }
 
   /**
+   * Set sessions to be synced on next sync cycle
+   */
+  setSessions(sessions: UsageSession[]): void {
+    this.pendingSessions = sessions;
+  }
+
+  /**
+   * Get the timestamp of the last successfully synced session
+   * Used for incremental syncing (only sync sessions newer than this)
+   */
+  getLastSyncedSessionTimestamp(): Date | null {
+    return this.lastSyncedSessionTimestamp;
+  }
+
+  /**
    * Perform sync if enough time has passed since last sync
    */
   private async syncIfNeeded(): Promise<void> {
@@ -132,9 +152,12 @@ export class SyncManager {
       current_5h_utilization_pct: this.lastUtilization.session,
       current_weekly_utilization_pct: this.lastUtilization.weekly,
       last_interaction_at: this.lastInteractionAt.toISOString(),
+      sessions: this.pendingSessions.length > 0 ? this.pendingSessions : undefined,
     };
 
-    console.log('[Clauder Sync] Syncing to backend...');
+    console.log(
+      `[Clauder Sync] Syncing to backend... (${this.pendingSessions.length} sessions queued)`
+    );
     const result = await this.apiClient.sync(payload);
 
     if (result.status === 'success') {
@@ -142,11 +165,46 @@ export class SyncManager {
       console.log(
         `[Clauder Sync] Sync successful: ${result.data.synced} records, velocity_updated: ${result.data.velocity_updated}`
       );
+
+      // Track the most recent session timestamp for incremental sync
+      if (this.pendingSessions.length > 0) {
+        const mostRecentSession = this.pendingSessions.reduce((latest, session) => {
+          const sessionTime = new Date(session.timestamp).getTime();
+          const latestTime = new Date(latest.timestamp).getTime();
+          return sessionTime > latestTime ? session : latest;
+        });
+        this.lastSyncedSessionTimestamp = new Date(mostRecentSession.timestamp);
+      }
+
+      // Clear pending sessions after successful sync
+      this.pendingSessions = [];
+
+      // Fetch predictions after successful sync
+      await this.fetchPrediction();
     } else if (result.status === 'error') {
       console.log(`[Clauder Sync] Sync failed: ${result.error}`);
     }
 
     return result;
+  }
+
+  /**
+   * Fetch prediction data from backend
+   */
+  private async fetchPrediction(): Promise<void> {
+    const result = await this.apiClient.fetchPrediction(this.config.licenseKey);
+
+    if (result.status === 'success') {
+      this.lastPrediction = result.data;
+      console.log('[Clauder Sync] Prediction fetched:', {
+        eta: result.data.five_hour.eta_human,
+        weekly: result.data.weekly.projected_pct_human,
+      });
+      this.onPredictionUpdateCallback?.(result.data);
+    } else if (result.status === 'error') {
+      console.log(`[Clauder Sync] Prediction fetch failed: ${result.error}`);
+      // Keep last prediction on error (don't clear it)
+    }
   }
 
   /**
@@ -161,5 +219,19 @@ export class SyncManager {
    */
   getLastInteractionAt(): Date {
     return this.lastInteractionAt;
+  }
+
+  /**
+   * Get the last prediction data
+   */
+  getPrediction(): PredictionResponse | null {
+    return this.lastPrediction;
+  }
+
+  /**
+   * Set callback for prediction updates
+   */
+  onPredictionUpdate(callback: (prediction: PredictionResponse | null) => void): void {
+    this.onPredictionUpdateCallback = callback;
   }
 }

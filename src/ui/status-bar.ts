@@ -8,6 +8,7 @@ import * as path from 'path';
 import { ConfigCache } from '~/config/cache';
 import { DEFAULT_WEEKLY_ALERT_THRESHOLD, shouldHighlightWeekly } from '~/limit';
 import type { LimitKind, LimitReset } from '~/limit';
+import type { PredictionResponse } from '~/sync';
 import type { ProjectBreakdown, UsageSummary } from '~/types';
 import type { UsageData } from '~/usage';
 
@@ -34,7 +35,16 @@ function styledHeading(text: string): string {
 export type CombinedUsage = {
   api: UsageData | null;
   local: UsageSummary | null;
+  prediction: PredictionResponse | null;
 };
+
+/**
+ * Format ETA string for compact display
+ * "~28 minutes" -> "~28m", "~2 hours" -> "~2h"
+ */
+function formatEtaCompact(eta: string): string {
+  return eta.replace(' minutes', 'm').replace(' minute', 'm').replace(' hours', 'h').replace(' hour', 'h');
+}
 
 export class StatusBarManager {
   private statusBarItem: vscode.StatusBarItem;
@@ -124,20 +134,23 @@ export class StatusBarManager {
         ? formatTimeRemaining(usage.api.session.resetsAt)
         : 'N/A';
 
+      // Build prediction suffix
+      const predictionSuffix = this.buildPredictionSuffix(usage.prediction);
+
       if (inlineWeekly) {
         const weeklyPercent = Math.round(usage.api.weeklyAll.utilization);
         const weeklyTime = usage.api.weeklyAll.resetsAt
           ? formatResetDay(usage.api.weeklyAll.resetsAt)
           : 'N/A';
         this.setStatusText(
-          `$(sparkle) ${sessionPercent}% | ${sessionTime} · W ${weeklyPercent}% | ${weeklyTime}`
+          `$(sparkle) ${sessionPercent}% | ${sessionTime} · W ${weeklyPercent}% | ${weeklyTime}${predictionSuffix}`
         );
         this.statusBarItem.color = getUsageColor(sessionPercent);
         this.statusBarItem.tooltip = this.buildTooltip(usage);
         return;
       }
 
-      this.setStatusText(`$(sparkle) ${sessionPercent}% | ${sessionTime}`);
+      this.setStatusText(`$(sparkle) ${sessionPercent}% | ${sessionTime}${predictionSuffix}`);
       this.statusBarItem.color = getUsageColor(sessionPercent);
       this.statusBarItem.tooltip = this.buildTooltip(usage);
     } else if (usage.local) {
@@ -153,9 +166,40 @@ export class StatusBarManager {
     }
   }
 
+  /**
+   * Build prediction suffix for status bar
+   * Returns empty string if no valid predictions
+   */
+  private buildPredictionSuffix(prediction: PredictionResponse | null): string {
+    if (!prediction) {
+      return '';
+    }
+
+    const parts: string[] = [];
+
+    // 5-hour ETA
+    const fiveHour = prediction.five_hour;
+    if (fiveHour.eta_human && fiveHour.confidence.tier !== 'insufficient') {
+      parts.push(`>> ${formatEtaCompact(fiveHour.eta_human)}`);
+    }
+
+    // Weekly projection
+    const weekly = prediction.weekly;
+    if (weekly.projected_pct_human && weekly.confidence.tier !== 'insufficient') {
+      parts.push(weekly.projected_pct_human);
+    }
+
+    if (parts.length === 0) {
+      return '';
+    }
+
+    return ` | ${parts.join(' | ')}`;
+  }
+
   private buildTooltip(usage: CombinedUsage): vscode.MarkdownString {
     const api = usage.api!;
     const local = usage.local;
+    const prediction = usage.prediction;
 
     const md = new vscode.MarkdownString();
     md.supportHtml = true;
@@ -187,6 +231,11 @@ export class StatusBarManager {
       );
     }
 
+    // Predictions section
+    if (prediction) {
+      this.appendPredictionSection(md, prediction, appendSeparator);
+    }
+
     if (local?.projectBreakdown && local.projectBreakdown.projects.length > 0) {
       appendSeparator();
       md.appendMarkdown(`${styledHeading('Usage by Project (Week)')}\n\n`);
@@ -205,6 +254,47 @@ export class StatusBarManager {
     md.appendMarkdown('\n\n</div>');
 
     return md;
+  }
+
+  private appendPredictionSection(
+    md: vscode.MarkdownString,
+    prediction: PredictionResponse,
+    appendSeparator: () => void
+  ): void {
+    const fiveHour = prediction.five_hour;
+    const weekly = prediction.weekly;
+
+    // Only show if we have at least one valid prediction
+    const hasFiveHourPrediction =
+      fiveHour.eta_human && fiveHour.confidence.tier !== 'insufficient';
+    const hasWeeklyPrediction =
+      weekly.projected_pct_human && weekly.confidence.tier !== 'insufficient';
+
+    if (!hasFiveHourPrediction && !hasWeeklyPrediction) {
+      return;
+    }
+
+    appendSeparator();
+    md.appendMarkdown(`${styledHeading('Predictions')}\n\n`);
+
+    // 5-hour ETA
+    if (hasFiveHourPrediction) {
+      const confLabel = fiveHour.confidence.tier;
+      md.appendMarkdown(`**5h ETA:** ${fiveHour.eta_human} _(${confLabel})_\n\n`);
+
+      if (fiveHour.burn_rate_pct_per_min !== null) {
+        md.appendMarkdown(`_Burn rate: ${fiveHour.burn_rate_pct_per_min.toFixed(2)}%/min_\n\n`);
+      }
+    }
+
+    // Weekly projection
+    if (hasWeeklyPrediction) {
+      md.appendMarkdown(`**Weekly:** ${weekly.projected_pct_human} projected\n\n`);
+
+      if (weekly.breach_day) {
+        md.appendMarkdown(`$(warning) May exceed limit by ${weekly.breach_day}\n\n`);
+      }
+    }
   }
 
   private buildLocalTooltip(usage: UsageSummary): vscode.MarkdownString {

@@ -63,21 +63,6 @@
     "configuration": {
       "title": "Clauder",
       "properties": {
-        "clauder.plan": {
-          "type": "string",
-          "default": "pro",
-          "enum": [
-            "pro",
-            "max5",
-            "max20"
-          ],
-          "enumDescriptions": [
-            "Pro Plan ($20/month)",
-            "Max 5x Plan ($100/month)",
-            "Max 20x Plan ($200/month)"
-          ],
-          "description": "Your Claude subscription plan"
-        },
         "clauder.refreshInterval": {
           "type": "number",
           "default": 30,
