@@ -8,6 +8,7 @@ import { ConfigCache } from '~/config';
 import { computeResumeDelay, getLimitReset, shouldRemainPaused } from '~/limit';
 import type { LimitReset } from '~/limit';
 import { SoundPlayer } from '~/sound';
+import { SyncManager } from '~/sync';
 import type { PlanType, StatusDisplayType } from '~/types';
 import type { CombinedUsage } from '~/ui';
 import { StatusBarManager } from '~/ui';
@@ -21,6 +22,7 @@ let statusBarManager: StatusBarManager;
 let usageApiClient: UsageApiClient;
 let usageTracker: UsageTracker;
 let soundPlayer: SoundPlayer;
+let syncManager: SyncManager;
 let refreshInterval: NodeJS.Timeout | undefined;
 let limitReset: LimitReset | null = null;
 let limitResumeTimeout: NodeJS.Timeout | undefined;
@@ -63,6 +65,8 @@ export function activate(context: vscode.ExtensionContext) {
   usageApiClient = new UsageApiClient();
   usageTracker = new UsageTracker();
   soundPlayer = new SoundPlayer(context);
+  syncManager = new SyncManager();
+  syncManager.start();
 
   const refreshCommand = vscode.commands.registerCommand('clauder.refresh', () =>
     updateStatusBar()
@@ -150,6 +154,9 @@ export function activate(context: vscode.ExtensionContext) {
       invalidateConfigCache();
       syncSoundSettings();
     }
+    if (e.affectsConfiguration('clauder.sync')) {
+      syncManager.restart();
+    }
   });
   context.subscriptions.push(configListener);
 
@@ -216,6 +223,12 @@ async function updateStatusBar(): Promise<void> {
     if (result.data) {
       const maxUtil = Math.max(result.data.session.utilization, result.data.weeklyAll.utilization);
       soundPlayer.checkRateLimitThreshold(maxUtil);
+
+      // Notify sync manager of new utilization data
+      syncManager?.onUtilizationUpdate(
+        result.data.session.utilization,
+        result.data.weeklyAll.utilization
+      );
     }
 
     console.log('[Clauder] API data:', JSON.stringify(result.data, null, 2));
@@ -375,6 +388,7 @@ export function deactivate() {
   clearLimitPause();
   stopRefreshInterval();
   stopCountdownInterval();
+  syncManager?.stop();
   authPromptedThisSession = false;
   configCache = null;
 }

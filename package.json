@@ -143,6 +143,28 @@
           "type": "string",
           "default": "",
           "description": "Optional path to custom sound file (overrides built-in sounds)"
+        },
+        "clauder.sync.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable syncing usage data to Clauder backend for predictions"
+        },
+        "clauder.sync.licenseKey": {
+          "type": "string",
+          "default": "",
+          "description": "License key for Clauder Pro backend"
+        },
+        "clauder.sync.backendUrl": {
+          "type": "string",
+          "default": "https://clauder.app",
+          "description": "Backend URL for sync"
+        },
+        "clauder.sync.interval": {
+          "type": "number",
+          "default": 30,
+          "minimum": 15,
+          "maximum": 120,
+          "description": "Sync interval in seconds"
         }
       }
     }
