@@ -8,19 +8,23 @@ import { ConfigCache } from '~/config';
 import { computeResumeDelay, getLimitReset, shouldRemainPaused } from '~/limit';
 import type { LimitReset } from '~/limit';
 import { SoundPlayer } from '~/sound';
-import type { PlanType, StatusDisplayType } from '~/types';
+import { SyncManager } from '~/sync';
+import type { StatusDisplayType } from '~/types';
 import type { CombinedUsage } from '~/ui';
 import { StatusBarManager } from '~/ui';
 import { UsageApiClient, UsageTracker } from '~/usage';
 
 const SHELL_INTEGRATION_PROMPTED_KEY = 'shellIntegrationPrompted';
 const SCRIPT_UPDATE_PROMPTED_KEY = 'scriptUpdatePrompted_v1';
-const INSTALL_URL = 'https://hellobussin.com/clauder/install.sh';
+const WEB_DASHBOARD_PROMPTED_KEY = 'webDashboardPrompted_v1';
+const INSTALL_URL = 'https://clauder.fyi/api/scripts/install';
+const WEB_DASHBOARD_URL = 'https://clauder.fyi/dashboard/extension';
 
 let statusBarManager: StatusBarManager;
 let usageApiClient: UsageApiClient;
 let usageTracker: UsageTracker;
 let soundPlayer: SoundPlayer;
+let syncManager: SyncManager;
 let refreshInterval: NodeJS.Timeout | undefined;
 let limitReset: LimitReset | null = null;
 let limitResumeTimeout: NodeJS.Timeout | undefined;
@@ -28,7 +32,6 @@ let countdownInterval: NodeJS.Timeout | undefined;
 let authPromptedThisSession = false;
 
 interface ClauderConfig {
-  plan: PlanType;
   weeklyThreshold: number;
   refreshInterval: number;
   statusDisplay: StatusDisplayType;
@@ -42,7 +45,6 @@ function getClauderConfig(): ClauderConfig {
     configCache = new ConfigCache(() => {
       const config = vscode.workspace.getConfiguration('clauder');
       return {
-        plan: config.get<PlanType>('plan', 'pro'),
         weeklyThreshold: config.get<number>('weeklyHighlightThreshold', 90),
         refreshInterval: config.get<number>('refreshInterval', 30),
         statusDisplay: config.get<StatusDisplayType>('statusDisplay', 'both'),
@@ -63,6 +65,15 @@ export function activate(context: vscode.ExtensionContext) {
   usageApiClient = new UsageApiClient();
   usageTracker = new UsageTracker();
   soundPlayer = new SoundPlayer(context);
+  syncManager = new SyncManager();
+
+  // Update status bar when predictions are received
+  syncManager.onPredictionUpdate(() => {
+    // Trigger a status bar refresh to show new predictions
+    updateStatusBar();
+  });
+
+  syncManager.start();
 
   const refreshCommand = vscode.commands.registerCommand('clauder.refresh', () =>
     updateStatusBar()
@@ -150,6 +161,9 @@ export function activate(context: vscode.ExtensionContext) {
       invalidateConfigCache();
       syncSoundSettings();
     }
+    if (e.affectsConfiguration('clauder.sync')) {
+      syncManager.restart();
+    }
   });
   context.subscriptions.push(configListener);
 
@@ -158,6 +172,7 @@ export function activate(context: vscode.ExtensionContext) {
   updateStatusBar();
   promptShellIntegration(context);
   checkScriptVersion(context);
+  promptWebDashboard(context);
 }
 
 async function updateStatusBar(): Promise<void> {
@@ -192,7 +207,7 @@ async function updateStatusBar(): Promise<void> {
     try {
       const config = getClauderConfig();
       statusBarManager.setWeeklyThreshold(config.weeklyThreshold);
-      localData = await usageTracker.calculateUsage(config.plan);
+      localData = await usageTracker.calculateUsage('pro');
     } catch {
       console.log('[Clauder] Local data fetch failed, continuing with API only');
     }
@@ -200,6 +215,7 @@ async function updateStatusBar(): Promise<void> {
     const combined: CombinedUsage = {
       api: result.data,
       local: localData,
+      prediction: syncManager?.getPrediction() ?? null,
     };
 
     const resetTime = getLimitReset(result.data);
@@ -216,6 +232,25 @@ async function updateStatusBar(): Promise<void> {
     if (result.data) {
       const maxUtil = Math.max(result.data.session.utilization, result.data.weeklyAll.utilization);
       soundPlayer.checkRateLimitThreshold(maxUtil);
+
+      // Notify sync manager of new utilization data
+      syncManager?.onUtilizationUpdate(
+        result.data.session.utilization,
+        result.data.weeklyAll.utilization
+      );
+
+      // Fetch and queue recent sessions for sync (incremental based on last synced timestamp)
+      try {
+        const recentSessions = await usageTracker.getRecentSessions(
+          syncManager?.getLastSyncedSessionTimestamp() ?? undefined
+        );
+        if (recentSessions.length > 0) {
+          syncManager?.setSessions(recentSessions);
+          console.log(`[Clauder] Queued ${recentSessions.length} sessions for sync`);
+        }
+      } catch {
+        console.log('[Clauder] Failed to fetch recent sessions for sync');
+      }
     }
 
     console.log('[Clauder] API data:', JSON.stringify(result.data, null, 2));
@@ -353,6 +388,26 @@ async function checkScriptVersion(context: vscode.ExtensionContext): Promise<voi
   }
 }
 
+async function promptWebDashboard(context: vscode.ExtensionContext): Promise<void> {
+  const alreadyPrompted = context.globalState.get<boolean>(WEB_DASHBOARD_PROMPTED_KEY);
+  if (alreadyPrompted) {
+    return;
+  }
+
+  const action = await vscode.window.showInformationMessage(
+    'Customize your statusline! Drag & drop elements, choose icons, and more at clauder.fyi',
+    'Open Dashboard',
+    "Don't Show Again"
+  );
+
+  if (action === 'Open Dashboard') {
+    vscode.env.openExternal(vscode.Uri.parse(WEB_DASHBOARD_URL));
+    await context.globalState.update(WEB_DASHBOARD_PROMPTED_KEY, true);
+  } else if (action === "Don't Show Again") {
+    await context.globalState.update(WEB_DASHBOARD_PROMPTED_KEY, true);
+  }
+}
+
 function syncSoundSettings(): void {
   try {
     const config = vscode.workspace.getConfiguration('clauder.sounds');
@@ -375,6 +430,7 @@ export function deactivate() {
   clearLimitPause();
   stopRefreshInterval();
   stopCountdownInterval();
+  syncManager?.stop();
   authPromptedThisSession = false;
   configCache = null;
 }

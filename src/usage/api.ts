@@ -5,6 +5,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { FETCH_STATUS, KEYCHAIN_SERVICE, PLATFORM } from '~/types';
+import type { BillingMode } from '~/types';
 
 export type UsageLimit = {
   utilization: number;
@@ -177,5 +178,83 @@ export class UsageApiClient {
       req.on('error', reject);
       req.end();
     });
+  }
+
+  /**
+   * Detect billing mode: subscription (OAuth/rate limits) vs api_key (pay-per-token)
+   */
+  async detectBillingMode(): Promise<{ mode: BillingMode; apiKeyPrefix?: string }> {
+    // First, try OAuth token - if it works, user is on subscription
+    const token = await this.getOAuthToken();
+    if (token) {
+      try {
+        await this.callApi(token);
+        console.log('[Clauder] Billing mode: subscription (OAuth token works)');
+        return { mode: 'subscription' };
+      } catch {
+        // OAuth token didn't work, continue to check API key
+        console.log('[Clauder] OAuth token found but API failed, checking for API key');
+      }
+    }
+
+    // Check for Anthropic API key
+    const apiKeyResult = this.getAnthropicApiKey();
+    if (apiKeyResult) {
+      console.log('[Clauder] Billing mode: api_key');
+      return { mode: 'api_key', apiKeyPrefix: apiKeyResult.prefix };
+    }
+
+    console.log('[Clauder] Billing mode: unknown');
+    return { mode: 'unknown' };
+  }
+
+  /**
+   * Get Anthropic API key from environment or config file
+   * Returns the key and a prefix for display
+   */
+  private getAnthropicApiKey(): { key: string; prefix: string } | null {
+    // Check environment variable
+    const envKey = process.env.ANTHROPIC_API_KEY;
+    if (envKey && envKey.trim()) {
+      const key = envKey.trim();
+      return { key, prefix: this.getKeyPrefix(key) };
+    }
+
+    // Check ~/.anthropic/api_key file
+    const apiKeyPath = path.join(os.homedir(), '.anthropic', 'api_key');
+    try {
+      if (fs.existsSync(apiKeyPath)) {
+        const key = fs.readFileSync(apiKeyPath, 'utf-8').trim();
+        if (key) {
+          return { key, prefix: this.getKeyPrefix(key) };
+        }
+      }
+    } catch {
+      // Ignore read errors
+    }
+
+    // Check Claude config for API key
+    const claudeConfigPath = path.join(os.homedir(), '.claude', 'config.json');
+    try {
+      if (fs.existsSync(claudeConfigPath)) {
+        const config = JSON.parse(fs.readFileSync(claudeConfigPath, 'utf-8'));
+        const key = config?.apiKey || config?.anthropicApiKey;
+        if (key) {
+          return { key, prefix: this.getKeyPrefix(key) };
+        }
+      }
+    } catch {
+      // Ignore read errors
+    }
+
+    return null;
+  }
+
+  /**
+   * Get a safe prefix of the API key for display (first 12 chars + ...)
+   */
+  private getKeyPrefix(key: string): string {
+    if (key.length <= 12) return key;
+    return key.slice(0, 12) + '...';
   }
 }

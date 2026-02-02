@@ -2,7 +2,7 @@
   "name": "clauder",
   "displayName": "Clauder",
   "description": "Track your Claude Code usage directly in VS Code. Shows real-time session and weekly utilization with color-coded status bar indicator.",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "publisher": "nrentas",
   "author": {
     "email": "nksrentas@gmail.com",
@@ -63,21 +63,6 @@
     "configuration": {
       "title": "Clauder",
       "properties": {
-        "clauder.plan": {
-          "type": "string",
-          "default": "pro",
-          "enum": [
-            "pro",
-            "max5",
-            "max20"
-          ],
-          "enumDescriptions": [
-            "Pro Plan ($20/month)",
-            "Max 5x Plan ($100/month)",
-            "Max 20x Plan ($200/month)"
-          ],
-          "description": "Your Claude subscription plan"
-        },
         "clauder.refreshInterval": {
           "type": "number",
           "default": 30,
@@ -143,6 +128,28 @@
           "type": "string",
           "default": "",
           "description": "Optional path to custom sound file (overrides built-in sounds)"
+        },
+        "clauder.sync.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable syncing usage data to Clauder backend for predictions"
+        },
+        "clauder.sync.licenseKey": {
+          "type": "string",
+          "default": "",
+          "description": "License key for Clauder Pro backend"
+        },
+        "clauder.sync.backendUrl": {
+          "type": "string",
+          "default": "https://clauder.app",
+          "description": "Backend URL for sync"
+        },
+        "clauder.sync.interval": {
+          "type": "number",
+          "default": 30,
+          "minimum": 15,
+          "maximum": 120,
+          "description": "Sync interval in seconds"
         }
       }
     }

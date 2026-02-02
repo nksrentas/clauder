@@ -1,10 +1,12 @@
 import { calculateCost, getEntryTokens, getModelFamily, getWeekBoundaries } from './utils';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import * as readline from 'readline';
 
+import type { UsageSession } from '~/sync/types';
 import type {
   LimitPrediction,
   ModelFamily,
@@ -110,7 +112,6 @@ export class UsageTracker {
       windowEndTime: windowEnd,
       weekStartTime: weekStart,
       weekEndTime: weekEnd,
-      plan,
       modelBreakdown,
       totalCost,
       projectBreakdown,
@@ -119,6 +120,169 @@ export class UsageTracker {
     };
 
     return result;
+  }
+
+  /**
+   * Get recent session entries for syncing to backend
+   * @param sinceTimestamp Only return sessions after this timestamp (for incremental sync)
+   * @param limit Maximum number of sessions to return (default 500)
+   */
+  async getRecentSessions(sinceTimestamp?: Date, limit: number = 500): Promise<UsageSession[]> {
+    const entries = await this.getAllUsageEntries();
+    const sinceMs = sinceTimestamp?.getTime() ?? 0;
+
+    const sessions: UsageSession[] = [];
+
+    for (const entry of entries) {
+      if (entry._tsMs <= sinceMs) continue;
+
+      sessions.push({
+        timestamp: entry.timestamp,
+        tokens_input: entry.message?.usage?.input_tokens ?? 0,
+        tokens_output: entry.message?.usage?.output_tokens ?? 0,
+        model: entry.message?.model ?? 'unknown',
+        project_hash: this.hashProjectPath(entry.cwd),
+      });
+
+      if (sessions.length >= limit) break;
+    }
+
+    // Sort by timestamp descending (most recent first)
+    sessions.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    return sessions.slice(0, limit);
+  }
+
+  /**
+   * Calculate costs for API key billing mode
+   * Returns daily, weekly, and monthly costs with model breakdown
+   */
+  async calculateCostSummary(): Promise<{
+    dailyCost: number;
+    weeklyCost: number;
+    monthlyCost: number;
+    modelBreakdown: {
+      opus?: { cost: number; inputTokens: number; outputTokens: number };
+      sonnet?: { cost: number; inputTokens: number; outputTokens: number };
+      haiku?: { cost: number; inputTokens: number; outputTokens: number };
+    };
+  }> {
+    const entries = await this.getAllUsageEntries();
+    const now = new Date();
+    const nowMs = now.getTime();
+
+    // Calculate time boundaries
+    const todayStart = new Date(now);
+    todayStart.setUTCHours(0, 0, 0, 0);
+    const todayStartMs = todayStart.getTime();
+
+    const weekStart = new Date(now);
+    weekStart.setUTCDate(weekStart.getUTCDate() - weekStart.getUTCDay());
+    weekStart.setUTCHours(0, 0, 0, 0);
+    const weekStartMs = weekStart.getTime();
+
+    const monthStart = new Date(now.getUTCFullYear(), now.getUTCMonth(), 1);
+    const monthStartMs = monthStart.getTime();
+
+    // Initialize accumulators
+    const dailyByModel: Record<string, { inputTokens: number; outputTokens: number }> = {};
+    const weeklyByModel: Record<string, { inputTokens: number; outputTokens: number }> = {};
+    const monthlyByModel: Record<string, { inputTokens: number; outputTokens: number }> = {};
+
+    for (const entry of entries) {
+      const tsMs = entry._tsMs;
+      if (tsMs > nowMs) continue;
+
+      const inputTokens = entry.message?.usage?.input_tokens || 0;
+      const outputTokens = entry.message?.usage?.output_tokens || 0;
+      const family = getModelFamily(entry.message?.model);
+
+      // Monthly (includes weekly and daily)
+      if (tsMs >= monthStartMs) {
+        if (!monthlyByModel[family]) {
+          monthlyByModel[family] = { inputTokens: 0, outputTokens: 0 };
+        }
+        monthlyByModel[family].inputTokens += inputTokens;
+        monthlyByModel[family].outputTokens += outputTokens;
+
+        // Weekly
+        if (tsMs >= weekStartMs) {
+          if (!weeklyByModel[family]) {
+            weeklyByModel[family] = { inputTokens: 0, outputTokens: 0 };
+          }
+          weeklyByModel[family].inputTokens += inputTokens;
+          weeklyByModel[family].outputTokens += outputTokens;
+
+          // Daily
+          if (tsMs >= todayStartMs) {
+            if (!dailyByModel[family]) {
+              dailyByModel[family] = { inputTokens: 0, outputTokens: 0 };
+            }
+            dailyByModel[family].inputTokens += inputTokens;
+            dailyByModel[family].outputTokens += outputTokens;
+          }
+        }
+      }
+    }
+
+    // Calculate costs
+    const calcCostForPeriod = (byModel: Record<string, { inputTokens: number; outputTokens: number }>) => {
+      let total = 0;
+      for (const family of Object.keys(byModel) as ModelFamily[]) {
+        const usage = byModel[family];
+        const pricing = MODEL_PRICING[family] || MODEL_PRICING.unknown;
+        total += calculateCost(
+          usage.inputTokens,
+          usage.outputTokens,
+          pricing.inputPerMTok,
+          pricing.outputPerMTok
+        );
+      }
+      return total;
+    };
+
+    const dailyCost = calcCostForPeriod(dailyByModel);
+    const weeklyCost = calcCostForPeriod(weeklyByModel);
+    const monthlyCost = calcCostForPeriod(monthlyByModel);
+
+    // Build model breakdown for daily (most granular)
+    const modelBreakdown: {
+      opus?: { cost: number; inputTokens: number; outputTokens: number };
+      sonnet?: { cost: number; inputTokens: number; outputTokens: number };
+      haiku?: { cost: number; inputTokens: number; outputTokens: number };
+    } = {};
+
+    for (const family of ['opus', 'sonnet', 'haiku'] as const) {
+      const usage = dailyByModel[family];
+      if (usage) {
+        const pricing = MODEL_PRICING[family];
+        modelBreakdown[family] = {
+          cost: calculateCost(
+            usage.inputTokens,
+            usage.outputTokens,
+            pricing.inputPerMTok,
+            pricing.outputPerMTok
+          ),
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+        };
+      }
+    }
+
+    return {
+      dailyCost,
+      weeklyCost,
+      monthlyCost,
+      modelBreakdown,
+    };
+  }
+
+  /**
+   * Hash project path for privacy (only first 16 chars of SHA-256)
+   */
+  private hashProjectPath(cwd?: string): string {
+    if (!cwd) return 'unknown';
+    return crypto.createHash('sha256').update(cwd).digest('hex').slice(0, 16);
   }
 
   private getWindowStart(entries: EntryWithParsedTime[], now: Date): Date {
